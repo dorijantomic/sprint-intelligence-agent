@@ -20,6 +20,7 @@ export interface WorkItem {
 export interface SprintSnapshot {
   id: string;
   sprintName: string;
+  sourceName: string;
   capturedAt: string;
   items: WorkItem[];
 }

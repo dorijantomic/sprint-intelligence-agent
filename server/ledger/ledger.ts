@@ -21,6 +21,7 @@ interface SnapshotRow {
   id: string;
   captured_at: string;
   iteration_name: string;
+  source_display_name: string;
   item_count: number;
 }
 
@@ -41,6 +42,7 @@ export interface StoredSnapshot {
   id: string;
   capturedAt: string;
   iterationName: string;
+  sourceName: string;
   items: Array<Record<string, unknown>>;
 }
 
@@ -319,9 +321,11 @@ export class SprintLedger {
   getSnapshot(snapshotId: string): StoredSnapshot {
     const snapshot = this.database
       .prepare(`
-        SELECT s.id, s.captured_at, s.item_count, i.name AS iteration_name
+        SELECT s.id, s.captured_at, s.item_count, i.name AS iteration_name,
+               c.display_name AS source_display_name
         FROM sprint_snapshots s
         JOIN iterations i ON i.id = s.iteration_id
+        JOIN source_connections c ON c.id = i.source_connection_id
         WHERE s.id = ?
       `)
       .get(snapshotId) as unknown as SnapshotRow | undefined;
@@ -341,6 +345,7 @@ export class SprintLedger {
       id: snapshot.id,
       capturedAt: snapshot.captured_at,
       iterationName: snapshot.iteration_name,
+      sourceName: snapshot.source_display_name,
       items: itemRows.map((row) => JSON.parse(row.state_json) as Record<string, unknown>),
     };
   }

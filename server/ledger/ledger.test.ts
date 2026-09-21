@@ -158,6 +158,7 @@ describe("SprintLedger", () => {
     );
 
     expect(snapshot.iterationName).toBe("Sprint 42");
+    expect(snapshot.sourceName).toBe("ACME Checkout");
     expect(snapshot.capturedAt).toBe("2026-09-18T16:30:00Z");
     expect(snapshot.items).toHaveLength(2);
     expect(snapshot.items).toContainEqual(

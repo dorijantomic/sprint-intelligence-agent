@@ -5,6 +5,7 @@ const repo = "https://github.com/acme/checkout";
 export const mondaySnapshot: SprintSnapshot = {
   id: "snapshot-monday",
   sprintName: "Checkout reliability · Sprint 42",
+  sourceName: "ACME / Checkout",
   capturedAt: "2026-09-14T09:00:00Z",
   items: [
     {
@@ -83,6 +84,7 @@ export const mondaySnapshot: SprintSnapshot = {
 export const currentSnapshot: SprintSnapshot = {
   id: "snapshot-friday",
   sprintName: "Checkout reliability · Sprint 42",
+  sourceName: "ACME / Checkout",
   capturedAt: "2026-09-18T16:30:00Z",
   items: [
     {

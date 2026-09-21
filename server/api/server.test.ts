@@ -34,6 +34,7 @@ describe("dashboard API", () => {
 
     expect(response.status).toBe(200);
     expect(body.source).toBe("ledger");
+    expect(body.current.sourceName).toBe("ACME Checkout demo");
     expect(body.baseline.items).toHaveLength(5);
     expect(body.current.items).toHaveLength(6);
     expect(body.current.items).toContainEqual(

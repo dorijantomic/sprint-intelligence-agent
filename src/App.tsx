@@ -136,7 +136,7 @@ function App() {
       <main>
         <header className="topbar">
           <div>
-            <span className="eyebrow">ACME / CHECKOUT</span>
+            <span className="eyebrow">{current.sourceName}</span>
             <h1>{current.sprintName}</h1>
           </div>
           <div className="topbar-actions">

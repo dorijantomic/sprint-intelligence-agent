@@ -3,7 +3,7 @@ import { GitHubProjectConnector } from "./github-project.js";
 
 const projectResponse = {
   data: {
-    organization: {
+    repositoryOwner: {
       projectV2: {
         id: "PVT_project",
         title: "Checkout reliability",
@@ -139,7 +139,6 @@ const projectResponse = {
         },
       },
     },
-    user: null,
   },
 };
 

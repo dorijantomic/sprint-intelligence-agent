@@ -24,6 +24,7 @@ export function serializeSnapshot(snapshot: StoredSnapshot) {
   return {
     id: snapshot.id,
     sprintName: snapshot.iterationName,
+    sourceName: snapshot.sourceName,
     capturedAt: snapshot.capturedAt,
     items: snapshot.items.map((item) => ({
       id: String(item.item_key),

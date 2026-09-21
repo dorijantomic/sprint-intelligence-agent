@@ -7,11 +7,13 @@ import type {
 
 const PROJECT_QUERY = `
   query SprintIntelligenceProject($owner: String!, $number: Int!, $after: String) {
-    organization(login: $owner) {
-      projectV2(number: $number) { ...ProjectData }
-    }
-    user(login: $owner) {
-      projectV2(number: $number) { ...ProjectData }
+    repositoryOwner(login: $owner) {
+      ... on Organization {
+        projectV2(number: $number) { ...ProjectData }
+      }
+      ... on User {
+        projectV2(number: $number) { ...ProjectData }
+      }
     }
   }
 
@@ -172,8 +174,7 @@ interface ProjectData {
 }
 
 interface QueryData {
-  organization: { projectV2: ProjectData | null } | null;
-  user: { projectV2: ProjectData | null } | null;
+  repositoryOwner: { projectV2: ProjectData | null } | null;
 }
 
 interface GraphQLResponse<T> {
@@ -446,8 +447,7 @@ export class GitHubProjectConnector implements SourceConnector {
       );
     }
 
-    const project =
-      payload.data?.organization?.projectV2 ?? payload.data?.user?.projectV2;
+    const project = payload.data?.repositoryOwner?.projectV2;
     if (!project) {
       throw new Error(
         `GitHub Project ${this.options.owner}/${this.options.projectNumber} was not found`,
