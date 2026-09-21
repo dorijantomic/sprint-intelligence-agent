@@ -23,6 +23,7 @@ interface SnapshotRow {
   iteration_name: string;
   source_display_name: string;
   item_count: number;
+  config_json: string | null;
 }
 
 interface SnapshotItemRow {
@@ -36,6 +37,13 @@ interface RelationshipRow {
 
 interface WorkItemRow extends Record<string, unknown> {
   id: number;
+}
+
+interface WorkItemEvidenceRow {
+  item_key: string;
+  title: string;
+  status: string;
+  url: string;
 }
 
 interface ActivityEventRow {
@@ -77,7 +85,23 @@ export interface StoredSnapshot {
   capturedAt: string;
   iterationName: string;
   sourceName: string;
+  sourceUrl: string | null;
   items: Array<Record<string, unknown>>;
+}
+
+export interface AgentRunInput {
+  snapshotId: string | null;
+  question: string;
+  answer: unknown;
+  mode: "model" | "deterministic";
+  model: string | null;
+  toolCalls: string[];
+  startedAt: string;
+  completedAt: string;
+  durationMs: number;
+  modelCalls: number;
+  inputTokens: number;
+  outputTokens: number;
 }
 
 export interface StoredActivityEvent {
@@ -89,6 +113,13 @@ export interface StoredActivityEvent {
   actor: string | null;
   url: string | null;
   payload: Record<string, unknown>;
+}
+
+export interface StoredWorkItemEvidence {
+  itemKey: string;
+  title: string;
+  status: string;
+  url: string;
 }
 
 export interface SyncRunInput {
@@ -450,6 +481,34 @@ export class SprintLedger {
     return { id, ...run };
   }
 
+  recordAgentRun(run: AgentRunInput): string {
+    const id = randomUUID();
+    this.database
+      .prepare(`
+        INSERT INTO agent_runs (
+          id, snapshot_id, question, answer_json, mode, model,
+          tool_calls_json, started_at, completed_at, duration_ms,
+          model_calls, input_tokens, output_tokens
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `)
+      .run(
+        id,
+        run.snapshotId,
+        run.question,
+        JSON.stringify(run.answer),
+        run.mode,
+        run.model,
+        JSON.stringify(run.toolCalls),
+        run.startedAt,
+        run.completedAt,
+        run.durationMs,
+        run.modelCalls,
+        run.inputTokens,
+        run.outputTokens,
+      );
+    return id;
+  }
+
   createSnapshot(
     connectionId: number,
     iterationExternalId: string,
@@ -544,10 +603,11 @@ export class SprintLedger {
     const snapshot = this.database
       .prepare(`
         SELECT s.id, s.captured_at, s.item_count, i.name AS iteration_name,
-               c.display_name AS source_display_name
+               c.display_name AS source_display_name, cfg.config_json
         FROM sprint_snapshots s
         JOIN iterations i ON i.id = s.iteration_id
         JOIN source_connections c ON c.id = i.source_connection_id
+        LEFT JOIN connection_configs cfg ON cfg.source_connection_id = c.id
         WHERE s.id = ?
       `)
       .get(snapshotId) as unknown as SnapshotRow | undefined;
@@ -563,11 +623,18 @@ export class SprintLedger {
       `)
       .all(snapshotId) as unknown as SnapshotItemRow[];
 
+    const connectionConfig = snapshot.config_json
+      ? (JSON.parse(snapshot.config_json) as Record<string, unknown>)
+      : null;
     return {
       id: snapshot.id,
       capturedAt: snapshot.captured_at,
       iterationName: snapshot.iteration_name,
       sourceName: snapshot.source_display_name,
+      sourceUrl:
+        typeof connectionConfig?.projectUrl === "string"
+          ? connectionConfig.projectUrl
+          : null,
       items: itemRows.map((row) => JSON.parse(row.state_json) as Record<string, unknown>),
     };
   }
@@ -623,6 +690,30 @@ export class SprintLedger {
     }));
   }
 
+  getWorkItemEvidence(
+    snapshotId: string,
+    itemKey: string,
+  ): StoredWorkItemEvidence | null {
+    const row = this.database
+      .prepare(`
+        SELECT w.item_key, w.title, w.status, w.url
+        FROM sprint_snapshots s
+        JOIN iterations i ON i.id = s.iteration_id
+        JOIN work_items w ON w.source_connection_id = i.source_connection_id
+        WHERE s.id = ? AND w.item_key = ?
+        ORDER BY CASE WHEN w.iteration_id = i.id THEN 0 ELSE 1 END
+        LIMIT 1
+      `)
+      .get(snapshotId, itemKey) as unknown as WorkItemEvidenceRow | undefined;
+    if (!row) return null;
+    return {
+      itemKey: row.item_key,
+      title: row.title,
+      status: row.status,
+      url: row.url,
+    };
+  }
+
   getLatestSyncRunForSnapshot(snapshotId: string): StoredSyncRun | null {
     const row = this.database
       .prepare(`
@@ -662,6 +753,7 @@ export class SprintLedger {
       | "work_item_relationships"
       | "activity_events"
       | "sync_runs"
+      | "agent_runs"
       | "sprint_snapshots",
   ): number {
     const row = this.database

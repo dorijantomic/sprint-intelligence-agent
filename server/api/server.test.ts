@@ -189,4 +189,62 @@ describe("dashboard API", () => {
     expect(response.status).toBe(401);
     expect(body.kind).toBe("authentication");
   });
+
+  it("serves a structured evidence-backed agent answer", async () => {
+    const ledger = new SprintLedger();
+    ledgers.push(ledger);
+    seedDemoLedger(ledger);
+    const server = createApiServer(ledger, {
+      askAgent: async (_ledger, question) => ({
+        answer: `${question} #142 is blocked by #139.`,
+        claims: [
+          {
+            text: "#142 is blocked by #139.",
+            kind: "fact",
+            confidence: "high",
+            factIds: ["risk:#142-blocked"],
+            evidenceIds: ["work-item:#142", "work-item:#139"],
+          },
+        ],
+        evidence: [
+          {
+            id: "work-item:#142",
+            label: "#142 · Retry payment authorization",
+            url: "https://example.test/issues/142",
+          },
+        ],
+        mode: "model",
+        model: "test-model",
+        fallbackReason: null,
+        toolsUsed: [],
+        telemetry: {
+          durationMs: 12,
+          modelCalls: 2,
+          inputTokens: 100,
+          outputTokens: 30,
+        },
+      }),
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address() as AddressInfo;
+
+    const response = await fetch(
+      `http://127.0.0.1:${address.port}/api/agent/ask`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ question: "What is blocked?" }),
+      },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.answer).toEqual(
+      expect.objectContaining({
+        mode: "model",
+        answer: expect.stringContaining("#142"),
+      }),
+    );
+  });
 });

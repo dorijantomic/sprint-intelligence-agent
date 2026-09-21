@@ -94,6 +94,22 @@ export const schema = `
     error_message TEXT
   );
 
+  CREATE TABLE IF NOT EXISTS agent_runs (
+    id TEXT PRIMARY KEY,
+    snapshot_id TEXT REFERENCES sprint_snapshots(id) ON DELETE SET NULL,
+    question TEXT NOT NULL,
+    answer_json TEXT NOT NULL,
+    mode TEXT NOT NULL,
+    model TEXT,
+    tool_calls_json TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    completed_at TEXT NOT NULL,
+    duration_ms REAL NOT NULL,
+    model_calls INTEGER NOT NULL,
+    input_tokens INTEGER NOT NULL,
+    output_tokens INTEGER NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS sprint_snapshots (
     id TEXT PRIMARY KEY,
     iteration_id INTEGER NOT NULL REFERENCES iterations(id) ON DELETE CASCADE,
@@ -116,6 +132,8 @@ export const schema = `
     ON sprint_snapshots(iteration_id, captured_at);
   CREATE INDEX IF NOT EXISTS idx_sync_runs_connection
     ON sync_runs(source_connection_id, completed_at);
+  CREATE INDEX IF NOT EXISTS idx_agent_runs_completed
+    ON agent_runs(completed_at);
 
-  PRAGMA user_version = 3;
+  PRAGMA user_version = 4;
 `;

@@ -1,5 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  askSprintAgent,
+  type AgentAnswer,
+} from "./api/agent";
+import {
   ApiError,
   discoverProjects,
   loadConnections,
@@ -225,6 +229,11 @@ function App() {
     status: "idle" | "running" | "updated" | "unchanged" | "error";
     message: string | null;
   }>({ status: "idle", message: null });
+  const [agentResult, setAgentResult] = useState<AgentAnswer | null>(null);
+  const [agentState, setAgentState] = useState<{
+    status: "idle" | "loading" | "error";
+    message: string | null;
+  }>({ status: "idle", message: null });
   const baseline = snapshots.baseline;
   const current = snapshots.current;
   const analysis = useMemo(
@@ -262,7 +271,7 @@ function App() {
       });
   }, []);
 
-  const answer = useMemo(
+  const deterministicAnswer = useMemo(
     () => answerSprintQuestion(askedQuestion, analysis, events),
     [askedQuestion, analysis, events],
   );
@@ -286,20 +295,36 @@ function App() {
     );
   }, [analysis, events]);
 
-  const answerEvidence = useMemo(
+  const deterministicEvidence = useMemo(
     () => evidenceForSprintQuestion(askedQuestion, analysis, events),
     [askedQuestion, analysis, events],
   );
+  const displayedAnswer =
+    agentState.status === "loading"
+      ? "Consulting the sprint ledger and checking evidence…"
+      : agentResult?.answer ?? deterministicAnswer;
+  const displayedEvidence = agentResult?.evidence ?? deterministicEvidence;
 
   const progress = Math.round(
     (analysis.completedPoints / analysis.totalPoints) * 100,
   );
 
-  function ask(value = question) {
+  async function ask(value = question) {
     const trimmed = value.trim();
     if (!trimmed) return;
     setQuestion(trimmed);
     setAskedQuestion(trimmed);
+    setAgentResult(null);
+    setAgentState({ status: "loading", message: null });
+    try {
+      setAgentResult(await askSprintAgent(trimmed));
+      setAgentState({ status: "idle", message: null });
+    } catch (error) {
+      setAgentState({
+        status: "error",
+        message: `${error instanceof Error ? error.message : "The agent is unavailable."} Showing the verified local analysis instead.`,
+      });
+    }
   }
 
   async function refreshDashboard() {
@@ -460,11 +485,11 @@ function App() {
                 </div>
                 <span className="evidence-mode">Evidence mode</span>
               </div>
-              <p className="agent-answer">{answer}</p>
-              {answerEvidence.length > 0 && (
+              <p className="agent-answer">{displayedAnswer}</p>
+              {displayedEvidence.length > 0 && agentState.status !== "loading" && (
                 <div className="answer-evidence" aria-label="Answer evidence">
                   <span>Sources</span>
-                  {answerEvidence.map((evidence) => (
+                  {displayedEvidence.map((evidence) => (
                     <a
                       href={evidence.url}
                       key={evidence.id}
@@ -476,12 +501,29 @@ function App() {
                   ))}
                 </div>
               )}
+              {agentResult && (
+                <div className="agent-trace" aria-label="Agent execution trace">
+                  <span>
+                    {agentResult.mode === "model"
+                      ? agentResult.model
+                      : agentResult.fallbackReason === "model_not_configured"
+                        ? "Rules-only · no model key"
+                        : "Rules-only · model fallback"}
+                  </span>
+                  <span>{agentResult.toolsUsed.length} ledger tool{agentResult.toolsUsed.length === 1 ? "" : "s"}</span>
+                  <span>{agentResult.claims.length} cited claim{agentResult.claims.length === 1 ? "" : "s"}</span>
+                  <span>{Math.round(agentResult.telemetry.durationMs)} ms</span>
+                </div>
+              )}
+              {agentState.status === "error" && (
+                <div className="agent-error" role="alert">{agentState.message}</div>
+              )}
               <div className="question-row">
                 {suggestedQuestions.map((item) => (
                   <button
                     className={askedQuestion === item ? "question active" : "question"}
                     key={item}
-                    onClick={() => ask(item)}
+                    onClick={() => void ask(item)}
                   >
                     {item}
                   </button>
@@ -491,7 +533,7 @@ function App() {
                 className="ask-form"
                 onSubmit={(event) => {
                   event.preventDefault();
-                  ask();
+                  void ask();
                 }}
               >
                 <input
@@ -500,7 +542,13 @@ function App() {
                   placeholder="Ask about this sprint…"
                   value={question}
                 />
-                <button aria-label="Ask question" type="submit">→</button>
+                <button
+                  aria-label="Ask question"
+                  disabled={agentState.status === "loading"}
+                  type="submit"
+                >
+                  {agentState.status === "loading" ? "…" : "→"}
+                </button>
               </form>
             </section>
 

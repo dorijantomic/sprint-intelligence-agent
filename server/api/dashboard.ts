@@ -1,4 +1,5 @@
 import type { StoredSnapshot } from "../ledger/ledger.js";
+import type { SprintSnapshot } from "../../src/domain/types.js";
 
 function status(value: unknown): "todo" | "in_progress" | "in_review" | "done" {
   const normalized = String(value).toLowerCase().replaceAll(/\s+/g, "_");
@@ -20,7 +21,21 @@ function priority(value: unknown): "low" | "medium" | "high" | "urgent" {
   return "medium";
 }
 
-export function serializeSnapshot(snapshot: StoredSnapshot) {
+function reviewState(
+  value: unknown,
+): "none" | "pending" | "approved" | "changes_requested" {
+  const normalized = String(value).toLowerCase();
+  if (
+    normalized === "pending" ||
+    normalized === "approved" ||
+    normalized === "changes_requested"
+  ) {
+    return normalized;
+  }
+  return "none";
+}
+
+export function serializeSnapshot(snapshot: StoredSnapshot): SprintSnapshot {
   return {
     id: snapshot.id,
     sprintName: snapshot.iterationName,
@@ -39,7 +54,7 @@ export function serializeSnapshot(snapshot: StoredSnapshot) {
       blockedBy: Array.isArray(item.blocked_by)
         ? item.blocked_by.map(String)
         : [],
-      reviewState: String(item.review_state ?? "none"),
+      reviewState: reviewState(item.review_state),
       url: String(item.url),
     })),
   };

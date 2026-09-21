@@ -18,7 +18,7 @@ Computes facts that should not depend on model judgment: field changes, addition
 
 ### Agent
 
-Uses narrow read tools over the ledger. It turns computed facts into explanations, risk summaries, and catch-up briefs. Every material statement carries source references.
+Uses five narrow read tools over the ledger: overview, changes, deterministic risks, work-item/blocker detail, and activity. The model selects tools through strict function schemas, while the application executes them and keeps fact and evidence registries for that run. Each submitted claim must cite retrieved fact IDs; the server derives the source links and rejects unknown grounding. Unsupported submissions fall back to deterministic narration. Every run records its tool trace, mode, latency, and token counts.
 
 ### API and React dashboard
 

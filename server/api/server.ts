@@ -5,6 +5,8 @@ import {
   type ServerResponse,
 } from "node:http";
 import { resolveGitHubToken } from "../config/github-sync.js";
+import { runSprintAgent } from "../agent/run-agent.js";
+import type { AgentAnswer } from "../agent/types.js";
 import {
   discoverGitHubProjects,
   GitHubApiError,
@@ -26,11 +28,16 @@ type ConnectionSync = (
   config: GitHubConnectionConfig,
   token: string,
 ) => Promise<GitHubConnectionSyncResult>;
+type AskAgent = (
+  ledger: SprintLedger,
+  question: string,
+) => Promise<AgentAnswer>;
 
 export interface ApiServerOptions {
   resolveToken?: TokenResolver;
   discoverProjects?: ProjectDiscovery;
   syncConnection?: ConnectionSync;
+  askAgent?: AskAgent;
 }
 
 function sendJson(response: ServerResponse, statusCode: number, body: unknown): void {
@@ -101,6 +108,7 @@ export function createApiServer(
   const tokenResolver = options.resolveToken ?? (() => resolveGitHubToken(null));
   const projectDiscovery = options.discoverProjects ?? discoverGitHubProjects;
   const connectionSync = options.syncConnection ?? syncGitHubConnection;
+  const askAgent = options.askAgent ?? runSprintAgent;
   const syncingConnections = new Set<number>();
 
   return createServer((request, response) => {
@@ -183,6 +191,28 @@ export function createApiServer(
           sendJson(response, 400, {
             error: safeErrorMessage(error),
             kind: "validation",
+          });
+        }
+        return;
+      }
+
+      if (request.method === "POST" && url.pathname === "/api/agent/ask") {
+        try {
+          const body = await readJson(request);
+          const question =
+            body && typeof body === "object" && "question" in body
+              ? String(body.question).trim()
+              : "";
+          if (!question) throw new Error("question is required");
+          if (question.length > 500) {
+            throw new Error("question must be 500 characters or fewer");
+          }
+          sendJson(response, 200, { answer: await askAgent(ledger, question) });
+        } catch (error) {
+          const validation = /question/.test(safeErrorMessage(error));
+          sendJson(response, validation ? 400 : 500, {
+            error: safeErrorMessage(error),
+            kind: validation ? "validation" : "agent",
           });
         }
         return;

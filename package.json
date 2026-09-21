@@ -17,6 +17,7 @@
     "typecheck": "tsc -b --pretty false"
   },
   "dependencies": {
+    "openai": "^7.20.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"
   },

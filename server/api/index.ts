@@ -1,8 +1,10 @@
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { createApiServer } from "./server.js";
 import { seedDemoLedger } from "../fixtures/seed-demo.js";
 import { SprintLedger } from "../ledger/ledger.js";
+
+if (existsSync(".env")) process.loadEnvFile(".env");
 
 const port = Number(process.env.PORT ?? 8787);
 const databasePath = resolve(

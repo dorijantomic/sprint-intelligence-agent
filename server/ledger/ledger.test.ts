@@ -278,4 +278,35 @@ describe("SprintLedger", () => {
       }),
     ]);
   });
+
+  it("resolves evidence for blockers outside the sprint iteration", async () => {
+    ledger = new SprintLedger();
+    const connector = new FixtureConnector();
+    await synchronize(ledger, connector);
+    const connectionId = ledger.upsertConnection(
+      connector.provider,
+      connector.connectionExternalId,
+      connector.displayName,
+    );
+    ledger.upsertWorkItem(connectionId, {
+      ...batch.items[0],
+      externalId: "external-blocker",
+      iterationExternalId: null,
+      key: "#120",
+      title: "External dependency",
+      url: "https://example.test/issues/120",
+    });
+    const snapshot = ledger.createSnapshot(
+      connectionId,
+      "iteration-42",
+      "2026-09-18T16:30:00Z",
+    );
+
+    expect(ledger.getWorkItemEvidence(snapshot.id, "#120")).toEqual({
+      itemKey: "#120",
+      title: "External dependency",
+      status: "in_review",
+      url: "https://example.test/issues/120",
+    });
+  });
 });

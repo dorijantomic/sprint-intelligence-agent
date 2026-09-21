@@ -82,6 +82,9 @@ main { grid-column: 2; min-width: 0; }
 .answer-evidence span { color: #7f8b91; font-size: 9px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
 .answer-evidence a { padding: 5px 8px; color: #d7e398; background: #273138; border: 1px solid #3b474d; border-radius: 6px; font-family: ui-monospace, monospace; font-size: 9px; text-decoration: none; }
 .answer-evidence a:hover { border-color: #7f8d50; }
+.agent-trace { position: relative; z-index: 1; display: flex; flex-wrap: wrap; gap: 6px; margin: -7px 0 18px; }
+.agent-trace span { padding: 4px 7px; color: #9ca8ad; background: #222d34; border-radius: 5px; font-size: 8px; letter-spacing: .04em; }
+.agent-error { position: relative; z-index: 1; margin: -7px 0 16px; padding: 8px 10px; color: #efb7a9; background: #35231f; border: 1px solid #664037; border-radius: 7px; font-size: 9px; line-height: 1.45; }
 .question-row { position: relative; z-index: 1; display: flex; flex-wrap: wrap; gap: 7px; }
 .question { padding: 7px 10px; color: #9ca8ad; background: transparent; border: 1px solid #3c474e; border-radius: 20px; cursor: pointer; font-size: 10px; }
 .question:hover, .question.active { color: #172027; background: #e4ff67; border-color: #e4ff67; }
