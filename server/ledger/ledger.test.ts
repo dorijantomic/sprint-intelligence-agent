@@ -119,6 +119,28 @@ describe("SprintLedger", () => {
     expect(ledger.count("activity_events")).toBe(1);
   });
 
+  it("removes blocker relationships that are absent from a later observation", async () => {
+    ledger = new SprintLedger();
+    await synchronize(ledger, new FixtureConnector());
+
+    class ClearedRelationshipConnector extends FixtureConnector {
+      override async *pull(): AsyncIterable<ConnectorBatch> {
+        yield {
+          ...batch,
+          relationships: [],
+          relationshipResets: [
+            { fromExternalId: "item-142", kind: "blocked_by" },
+          ],
+          cursor: "cursor-2",
+        };
+      }
+    }
+
+    await synchronize(ledger, new ClearedRelationshipConnector());
+
+    expect(ledger.count("work_item_relationships")).toBe(0);
+  });
+
   it("creates immutable iteration snapshots", async () => {
     ledger = new SprintLedger();
     const connector = new FixtureConnector();

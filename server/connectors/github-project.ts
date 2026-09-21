@@ -52,7 +52,23 @@ const PROJECT_QUERY = `
             updatedAt
             state
             assignees(first: 10) { nodes { login } }
-            comments { totalCount }
+            comments(last: 50) {
+              totalCount
+              nodes { id bodyText createdAt updatedAt url author { login } }
+            }
+            blockedBy(first: 100) {
+              nodes {
+                id
+                number
+                title
+                url
+                updatedAt
+                state
+                assignees(first: 10) { nodes { login } }
+                comments { totalCount }
+                repository { nameWithOwner }
+              }
+            }
             repository { nameWithOwner }
           }
           ... on PullRequest {
@@ -64,7 +80,13 @@ const PROJECT_QUERY = `
             state
             reviewDecision
             assignees(first: 10) { nodes { login } }
-            comments { totalCount }
+            comments(last: 50) {
+              totalCount
+              nodes { id bodyText createdAt updatedAt url author { login } }
+            }
+            reviews(last: 50) {
+              nodes { id bodyText submittedAt updatedAt url state author { login } }
+            }
             repository { nameWithOwner }
           }
         }
@@ -95,18 +117,48 @@ interface ProjectItem {
   id: string;
   isArchived: boolean;
   fieldValues: { nodes: Array<FieldValue | null> };
-  content: {
+  content: GitHubContent | null;
+}
+
+interface GitHubComment {
+  id: string;
+  bodyText: string;
+  createdAt: string;
+  updatedAt: string;
+  url: string;
+  author: { login: string } | null;
+}
+
+interface GitHubReview {
+  id: string;
+  bodyText: string;
+  submittedAt: string | null;
+  updatedAt: string;
+  url: string;
+  state: string;
+  author: { login: string } | null;
+}
+
+interface GitHubIssueReference {
     id: string;
     number: number;
     title: string;
     url: string;
     updatedAt: string;
     state: string;
-    reviewDecision?: string | null;
     assignees: { nodes: Array<{ login: string }> };
     comments: { totalCount: number };
     repository: { nameWithOwner: string };
-  } | null;
+}
+
+interface GitHubContent extends GitHubIssueReference {
+  reviewDecision?: string | null;
+  comments: {
+    totalCount: number;
+    nodes?: Array<GitHubComment | null>;
+  };
+  blockedBy?: { nodes: Array<GitHubIssueReference | null> };
+  reviews?: { nodes: Array<GitHubReview | null> };
 }
 
 interface ProjectData {
@@ -198,6 +250,62 @@ function normalizeItem(
   };
 }
 
+function normalizeDependency(item: GitHubIssueReference): NormalizedWorkItem {
+  return {
+    externalId: item.id,
+    iterationExternalId: null,
+    key: `${item.repository.nameWithOwner}#${item.number}`,
+    title: item.title,
+    kind: "issue",
+    status: item.state.toLowerCase(),
+    priority: null,
+    assignee: item.assignees.nodes[0]?.login ?? null,
+    estimate: null,
+    commentCount: item.comments.totalCount,
+    reviewState: "none",
+    updatedAt: item.updatedAt,
+    url: item.url,
+    raw: item,
+  };
+}
+
+function contentEvents(item: ProjectItem): ConnectorBatch["events"] {
+  if (!item.content) return [];
+
+  const comments = (item.content.comments.nodes ?? [])
+    .filter((comment): comment is GitHubComment => comment !== null)
+    .map((comment) => ({
+      externalId: comment.id,
+      workItemExternalId: item.content?.id ?? null,
+      kind: "commented",
+      occurredAt: comment.createdAt,
+      actor: comment.author?.login ?? null,
+      url: comment.url,
+      payload: {
+        body: comment.bodyText,
+        updatedAt: comment.updatedAt,
+        source: "github",
+      },
+    }));
+  const reviews = (item.content.reviews?.nodes ?? [])
+    .filter((review): review is GitHubReview => review !== null)
+    .map((review) => ({
+      externalId: review.id,
+      workItemExternalId: item.content?.id ?? null,
+      kind: "reviewed",
+      occurredAt: review.submittedAt ?? review.updatedAt,
+      actor: review.author?.login ?? null,
+      url: review.url,
+      payload: {
+        body: review.bodyText,
+        state: review.state.toLowerCase(),
+        source: "github",
+      },
+    }));
+
+  return [...comments, ...reviews];
+}
+
 export class GitHubProjectConnector implements SourceConnector {
   readonly provider = "github";
   readonly connectionExternalId: string;
@@ -213,6 +321,7 @@ export class GitHubProjectConnector implements SourceConnector {
   async *pull(_cursor: string | null): AsyncIterable<ConnectorBatch> {
     let after: string | null = null;
     let foundIteration = false;
+    const sprintItemIds = new Set<string>();
 
     do {
       const project = await this.fetchProject(after);
@@ -224,20 +333,51 @@ export class GitHubProjectConnector implements SourceConnector {
       const items = matchingItems
         .map((item) => normalizeItem(item, this.options.iterationId))
         .filter((item): item is NormalizedWorkItem => item !== null);
+      for (const item of items) sprintItemIds.add(item.externalId);
+      const dependencyById = new Map<string, GitHubIssueReference>();
+      for (const dependency of matchingItems.flatMap(
+        (item) => item.content?.blockedBy?.nodes ?? [],
+      )) {
+        if (dependency && !sprintItemIds.has(dependency.id)) {
+          dependencyById.set(dependency.id, dependency);
+        }
+      }
+      const dependencies = [...dependencyById.values()].map(normalizeDependency);
+      const relationships = matchingItems.flatMap((item) =>
+        (item.content?.blockedBy?.nodes ?? [])
+          .filter((dependency): dependency is GitHubIssueReference => dependency !== null)
+          .map((dependency) => ({
+            action: "upsert" as const,
+            fromExternalId: item.content!.id,
+            toExternalId: dependency.id,
+            kind: "blocked_by" as const,
+            observedAt: item.content!.updatedAt,
+          })),
+      );
+      const evidenceEvents = matchingItems.flatMap(contentEvents);
 
       yield {
         iteration,
-        items,
-        relationships: [],
-        events: items.map((item) => ({
-          externalId: `${item.externalId}:${item.updatedAt}`,
-          workItemExternalId: item.externalId,
-          kind: "observed_update",
-          occurredAt: item.updatedAt,
-          actor: null,
-          url: item.url,
-          payload: { status: item.status, source: "github_project" },
-        })),
+        items: [...items, ...dependencies],
+        relationshipResets: matchingItems
+          .filter((item) => item.content !== null)
+          .map((item) => ({
+            fromExternalId: item.content!.id,
+            kind: "blocked_by" as const,
+          })),
+        relationships,
+        events: [
+          ...items.map((item) => ({
+            externalId: `${item.externalId}:${item.updatedAt}`,
+            workItemExternalId: item.externalId,
+            kind: "observed_update",
+            occurredAt: item.updatedAt,
+            actor: null,
+            url: item.url,
+            payload: { status: item.status, source: "github_project" },
+          })),
+          ...evidenceEvents,
+        ],
         cursor: project.items.pageInfo.endCursor,
       };
 

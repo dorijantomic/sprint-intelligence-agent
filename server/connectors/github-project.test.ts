@@ -36,7 +36,75 @@ const projectResponse = {
                 updatedAt: "2026-09-18T10:05:00Z",
                 state: "OPEN",
                 assignees: { nodes: [{ login: "maya" }] },
-                comments: { totalCount: 7 },
+                comments: {
+                  totalCount: 7,
+                  nodes: [
+                    {
+                      id: "IC_comment",
+                      bodyText: "Waiting for the idempotency work.",
+                      createdAt: "2026-09-18T09:50:00Z",
+                      updatedAt: "2026-09-18T09:50:00Z",
+                      url: "https://github.com/acme/checkout/issues/142#issuecomment-1",
+                      author: { login: "maya" },
+                    },
+                  ],
+                },
+                blockedBy: {
+                  nodes: [
+                    {
+                      id: "I_blocker",
+                      number: 139,
+                      title: "Expose idempotency keys",
+                      url: "https://github.com/acme/checkout/issues/139",
+                      updatedAt: "2026-09-18T09:28:00Z",
+                      state: "OPEN",
+                      assignees: { nodes: [{ login: "leo" }] },
+                      comments: { totalCount: 3 },
+                      repository: { nameWithOwner: "acme/checkout" },
+                    },
+                  ],
+                },
+                repository: { nameWithOwner: "acme/checkout" },
+              },
+            },
+            {
+              id: "PVTI_pull_request",
+              isArchived: false,
+              fieldValues: {
+                nodes: [
+                  {
+                    iterationId: "iteration-42",
+                    title: "Sprint 42",
+                    startDate: "2026-09-14",
+                    duration: 12,
+                    field: { name: "Iteration" },
+                  },
+                  { name: "In review", field: { name: "Status" } },
+                ],
+              },
+              content: {
+                id: "PR_review",
+                number: 144,
+                title: "Harden payment retries",
+                url: "https://github.com/acme/checkout/pull/144",
+                updatedAt: "2026-09-18T12:00:00Z",
+                state: "OPEN",
+                reviewDecision: "CHANGES_REQUESTED",
+                assignees: { nodes: [{ login: "leo" }] },
+                comments: { totalCount: 1, nodes: [] },
+                reviews: {
+                  nodes: [
+                    {
+                      id: "PRR_review",
+                      bodyText: "Please cover the timeout path.",
+                      submittedAt: "2026-09-18T11:45:00Z",
+                      updatedAt: "2026-09-18T11:45:00Z",
+                      url: "https://github.com/acme/checkout/pull/144#pullrequestreview-1",
+                      state: "CHANGES_REQUESTED",
+                      author: { login: "iris" },
+                    },
+                  ],
+                },
                 repository: { nameWithOwner: "acme/checkout" },
               },
             },
@@ -62,7 +130,8 @@ const projectResponse = {
                 updatedAt: "2026-09-18T11:00:00Z",
                 state: "OPEN",
                 assignees: { nodes: [] },
-                comments: { totalCount: 0 },
+                comments: { totalCount: 0, nodes: [] },
+                blockedBy: { nodes: [] },
                 repository: { nameWithOwner: "acme/checkout" },
               },
             },
@@ -100,20 +169,62 @@ describe("GitHubProjectConnector", () => {
       startsAt: "2026-09-14",
       endsAt: "2026-09-26",
     });
-    expect(batches[0].items).toEqual([
+    expect(batches[0].items).toHaveLength(3);
+    expect(batches[0].items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          externalId: "I_issue",
+          key: "acme/checkout#142",
+          status: "in_progress",
+          priority: "high",
+          assignee: "maya",
+          estimate: 8,
+          commentCount: 7,
+          reviewState: "none",
+        }),
+        expect.objectContaining({
+          externalId: "I_blocker",
+          iterationExternalId: null,
+          key: "acme/checkout#139",
+          status: "open",
+        }),
+        expect.objectContaining({
+          externalId: "PR_review",
+          key: "acme/checkout#144",
+          status: "in_review",
+          reviewState: "changes_requested",
+        }),
+      ]),
+    );
+    expect(batches[0].relationships).toEqual([
       expect.objectContaining({
-        externalId: "I_issue",
-        key: "acme/checkout#142",
-        status: "in_progress",
-        priority: "high",
-        assignee: "maya",
-        estimate: 8,
-        commentCount: 7,
-        reviewState: "none",
+        fromExternalId: "I_issue",
+        toExternalId: "I_blocker",
+        kind: "blocked_by",
       }),
     ]);
-    expect(batches[0].events[0].externalId).toBe(
-      "I_issue:2026-09-18T10:05:00Z",
+    expect(batches[0].relationshipResets).toEqual([
+      { fromExternalId: "I_issue", kind: "blocked_by" },
+      { fromExternalId: "PR_review", kind: "blocked_by" },
+    ]);
+    expect(batches[0].events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          externalId: "I_issue:2026-09-18T10:05:00Z",
+          kind: "observed_update",
+        }),
+        expect.objectContaining({
+          externalId: "IC_comment",
+          kind: "commented",
+          actor: "maya",
+        }),
+        expect.objectContaining({
+          externalId: "PRR_review",
+          kind: "reviewed",
+          actor: "iris",
+          payload: expect.objectContaining({ state: "changes_requested" }),
+        }),
+      ]),
     );
     expect(request).toHaveBeenCalledOnce();
   });

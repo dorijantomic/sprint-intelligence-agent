@@ -36,6 +36,11 @@ export interface NormalizedRelationshipMutation {
   observedAt: string;
 }
 
+export interface NormalizedRelationshipReset {
+  fromExternalId: string;
+  kind: RelationshipKind;
+}
+
 export interface NormalizedEvent {
   externalId: string;
   workItemExternalId: string | null;
@@ -50,6 +55,7 @@ export interface ConnectorBatch {
   iteration: NormalizedIteration | null;
   items: NormalizedWorkItem[];
   relationships: NormalizedRelationshipMutation[];
+  relationshipResets?: NormalizedRelationshipReset[];
   events: NormalizedEvent[];
   cursor: string | null;
 }

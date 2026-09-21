@@ -31,6 +31,13 @@ export async function synchronize(
     ledger.transaction(() => {
       if (batch.iteration) ledger.upsertIteration(connectionId, batch.iteration);
       for (const item of batch.items) ledger.upsertWorkItem(connectionId, item);
+      for (const reset of batch.relationshipResets ?? []) {
+        ledger.clearRelationshipsFrom(
+          connectionId,
+          reset.fromExternalId,
+          reset.kind,
+        );
+      }
       for (const relationship of batch.relationships) {
         ledger.applyRelationship(connectionId, relationship);
       }

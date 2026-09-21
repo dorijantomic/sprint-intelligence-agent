@@ -51,7 +51,7 @@ See [docs/architecture.md](docs/architecture.md) for the system boundaries and d
 
 ## Repository status
 
-The repository includes an interactive React dashboard, deterministic before/after sprint analysis, evidence-linked risk signals, a source-neutral SQLite ledger, and a read-only GitHub Projects connector. GitHub-specific data is normalized at the connector boundary so future Jira support does not change the ledger or analysis engine.
+The repository includes an interactive React dashboard, deterministic before/after sprint analysis, evidence-linked risk signals, a source-neutral SQLite ledger, and a read-only GitHub Projects connector. The connector imports native blocker relationships plus timestamped comments and reviews, and reconciles dependencies when they are removed. GitHub-specific data is normalized at the connector boundary so future Jira support does not change the ledger or analysis engine.
 
 Run it locally:
 

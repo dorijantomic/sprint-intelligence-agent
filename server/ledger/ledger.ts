@@ -197,6 +197,22 @@ export class SprintLedger {
       .run(connectionId, fromId, toId, relationship.kind, relationship.observedAt);
   }
 
+  clearRelationshipsFrom(
+    connectionId: number,
+    fromExternalId: string,
+    kind: NormalizedRelationshipMutation["kind"],
+  ): void {
+    const fromId = this.findWorkItemId(connectionId, fromExternalId);
+    this.database
+      .prepare(`
+        DELETE FROM work_item_relationships
+        WHERE source_connection_id = ?
+          AND from_work_item_id = ?
+          AND kind = ?
+      `)
+      .run(connectionId, fromId, kind);
+  }
+
   appendEvent(connectionId: number, event: NormalizedEvent): boolean {
     const workItemId = event.workItemExternalId
       ? this.findWorkItemId(connectionId, event.workItemExternalId)
