@@ -35,6 +35,8 @@ export const schema = `
     priority TEXT,
     assignee TEXT,
     estimate REAL,
+    comment_count INTEGER NOT NULL,
+    review_state TEXT NOT NULL,
     source_updated_at TEXT NOT NULL,
     url TEXT NOT NULL,
     raw_json TEXT NOT NULL,

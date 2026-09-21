@@ -36,6 +36,7 @@ const projectResponse = {
                 updatedAt: "2026-09-18T10:05:00Z",
                 state: "OPEN",
                 assignees: { nodes: [{ login: "maya" }] },
+                comments: { totalCount: 7 },
                 repository: { nameWithOwner: "acme/checkout" },
               },
             },
@@ -61,6 +62,7 @@ const projectResponse = {
                 updatedAt: "2026-09-18T11:00:00Z",
                 state: "OPEN",
                 assignees: { nodes: [] },
+                comments: { totalCount: 0 },
                 repository: { nameWithOwner: "acme/checkout" },
               },
             },
@@ -106,6 +108,8 @@ describe("GitHubProjectConnector", () => {
         priority: "high",
         assignee: "maya",
         estimate: 8,
+        commentCount: 7,
+        reviewState: "none",
       }),
     ]);
     expect(batches[0].events[0].externalId).toBe(

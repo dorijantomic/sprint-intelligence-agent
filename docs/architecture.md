@@ -24,6 +24,8 @@ Uses narrow read tools over the ledger. It turns computed facts into explanation
 
 Presents the sprint overview, snapshot diff, dependency graph, evidence drawer, risk list, and conversational queries.
 
+During local development, the API reads immutable snapshots from SQLite and Vite proxies `/api` requests to it. The dashboard retains a bundled fixture only as an explicit fallback when the API is unavailable.
+
 ### Evaluation harness
 
 Replays fixed sprint histories and scores factual correctness, citation validity, risk classification, latency, token use, and estimated cost.

@@ -60,6 +60,8 @@ npm install
 npm run dev
 ```
 
+This starts the ledger-backed API on port `8787` and the Vite dashboard on port `5173`. On first run, the API creates an ignored local SQLite database and seeds two demo snapshots so the complete persistence-to-dashboard path is immediately usable.
+
 Quality checks:
 
 ```bash

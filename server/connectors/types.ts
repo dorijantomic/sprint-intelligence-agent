@@ -19,6 +19,8 @@ export interface NormalizedWorkItem {
   priority: string | null;
   assignee: string | null;
   estimate: number | null;
+  commentCount: number;
+  reviewState: "none" | "pending" | "approved" | "changes_requested";
   updatedAt: string;
   url: string;
   raw: unknown;

@@ -26,6 +26,8 @@ const batch: ConnectorBatch = {
       priority: "high",
       assignee: "Leo",
       estimate: 5,
+      commentCount: 3,
+      reviewState: "pending",
       updatedAt: "2026-09-18T09:28:00Z",
       url: "https://example.test/pull/139",
       raw: { number: 139 },
@@ -40,6 +42,8 @@ const batch: ConnectorBatch = {
       priority: "urgent",
       assignee: "Maya",
       estimate: 8,
+      commentCount: 7,
+      reviewState: "none",
       updatedAt: "2026-09-18T10:05:00Z",
       url: "https://example.test/issues/142",
       raw: { number: 142 },
@@ -134,6 +138,9 @@ describe("SprintLedger", () => {
     expect(snapshot.iterationName).toBe("Sprint 42");
     expect(snapshot.capturedAt).toBe("2026-09-18T16:30:00Z");
     expect(snapshot.items).toHaveLength(2);
+    expect(snapshot.items).toContainEqual(
+      expect.objectContaining({ item_key: "#142", blocked_by: ["#139"] }),
+    );
     expect(ledger.count("sprint_snapshots")).toBe(1);
   });
 });

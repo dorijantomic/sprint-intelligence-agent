@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { loadDashboard } from "./api/dashboard";
 import { currentSnapshot, mondaySnapshot } from "./data/demoSprint";
 import { analyzeSprint, answerSprintQuestion } from "./domain/analyzeSprint";
 import type { SprintRisk, WorkStatus } from "./domain/types";
@@ -52,14 +53,41 @@ function RiskCard({ risk }: { risk: SprintRisk }) {
 }
 
 function App() {
+  const [snapshots, setSnapshots] = useState({
+    baseline: mondaySnapshot,
+    current: currentSnapshot,
+  });
+  const [dataSource, setDataSource] = useState<"loading" | "ledger" | "fixture">(
+    "loading",
+  );
+  const baseline = snapshots.baseline;
+  const current = snapshots.current;
   const analysis = useMemo(
-    () => analyzeSprint(mondaySnapshot, currentSnapshot),
-    [],
+    () => analyzeSprint(baseline, current),
+    [baseline, current],
   );
   const [question, setQuestion] = useState(suggestedQuestions[0]);
   const [answer, setAnswer] = useState(() =>
     answerSprintQuestion(suggestedQuestions[0], analysis),
   );
+
+  useEffect(() => {
+    const controller = new AbortController();
+    loadDashboard(controller.signal)
+      .then((payload) => {
+        setSnapshots({ baseline: payload.baseline, current: payload.current });
+        setDataSource("ledger");
+      })
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        setDataSource("fixture");
+      });
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
+    setAnswer(answerSprintQuestion(question, analysis));
+  }, [analysis]);
 
   const progress = Math.round(
     (analysis.completedPoints / analysis.totalPoints) * 100,
@@ -93,8 +121,14 @@ function App() {
         <div className="sidebar-foot">
           <span className="connection-dot" />
           <div>
-            <strong>Fixture ledger</strong>
-            <small>2 snapshots synced</small>
+            <strong>{dataSource === "ledger" ? "SQLite ledger" : "Demo ledger"}</strong>
+            <small>
+              {dataSource === "loading"
+                ? "Loading snapshots…"
+                : dataSource === "ledger"
+                  ? "2 persisted snapshots"
+                  : "API unavailable · fixture fallback"}
+            </small>
           </div>
         </div>
       </aside>
@@ -103,11 +137,15 @@ function App() {
         <header className="topbar">
           <div>
             <span className="eyebrow">ACME / CHECKOUT</span>
-            <h1>{currentSnapshot.sprintName}</h1>
+            <h1>{current.sprintName}</h1>
           </div>
           <div className="topbar-actions">
-            <button className="ghost-button">Sep 14 → Sep 18</button>
-            <button className="sync-button"><span>↻</span> Synced just now</button>
+            <button className="ghost-button">
+              {new Date(baseline.capturedAt).toLocaleDateString("en", { month: "short", day: "numeric" })}
+              {" → "}
+              {new Date(current.capturedAt).toLocaleDateString("en", { month: "short", day: "numeric" })}
+            </button>
+            <button className="sync-button"><span>↻</span> {dataSource === "loading" ? "Loading" : "Synced"}</button>
           </div>
         </header>
 
@@ -219,10 +257,10 @@ function App() {
                   <span className="eyebrow">CURRENT STATE</span>
                   <h2>Work in motion</h2>
                 </div>
-                <span className="section-count">{currentSnapshot.items.length} items</span>
+                <span className="section-count">{current.items.length} items</span>
               </div>
               <div className="work-list">
-                {currentSnapshot.items.map((item) => (
+                {current.items.map((item) => (
                   <a href={item.url} className="work-item" key={item.id}>
                     <span className={`status-dot status-${item.status}`} />
                     <span className="work-copy">

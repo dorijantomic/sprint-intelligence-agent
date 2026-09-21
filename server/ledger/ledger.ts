@@ -28,6 +28,15 @@ interface SnapshotItemRow {
   state_json: string;
 }
 
+interface RelationshipRow {
+  from_id: number;
+  target_key: string;
+}
+
+interface WorkItemRow extends Record<string, unknown> {
+  id: number;
+}
+
 export interface StoredSnapshot {
   id: string;
   capturedAt: string;
@@ -117,8 +126,8 @@ export class SprintLedger {
         INSERT INTO work_items (
           source_connection_id, iteration_id, external_id, item_key,
           title, kind, status, priority, assignee, estimate,
-          source_updated_at, url, raw_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          comment_count, review_state, source_updated_at, url, raw_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(source_connection_id, external_id) DO UPDATE SET
           iteration_id = excluded.iteration_id,
           item_key = excluded.item_key,
@@ -128,6 +137,8 @@ export class SprintLedger {
           priority = excluded.priority,
           assignee = excluded.assignee,
           estimate = excluded.estimate,
+          comment_count = excluded.comment_count,
+          review_state = excluded.review_state,
           source_updated_at = excluded.source_updated_at,
           url = excluded.url,
           raw_json = excluded.raw_json
@@ -144,6 +155,8 @@ export class SprintLedger {
         item.priority,
         item.assignee,
         item.estimate,
+        item.commentCount,
+        item.reviewState,
         item.updatedAt,
         item.url,
         JSON.stringify(item.raw ?? null),
@@ -236,15 +249,36 @@ export class SprintLedger {
   ): StoredSnapshot {
     const iterationId = this.findIterationId(connectionId, iterationExternalId);
     const snapshotId = randomUUID();
-    const items = this.database
+    const itemRows = this.database
       .prepare(`
         SELECT id, external_id, item_key, title, kind, status, priority,
-               assignee, estimate, source_updated_at, url
+               assignee, estimate, comment_count, review_state,
+               source_updated_at, url
         FROM work_items
         WHERE iteration_id = ?
         ORDER BY item_key
       `)
-      .all(iterationId) as Array<Record<string, unknown>>;
+      .all(iterationId) as unknown as WorkItemRow[];
+    const relationshipRows = this.database
+      .prepare(`
+        SELECT r.from_work_item_id AS from_id, target.item_key AS target_key
+        FROM work_item_relationships r
+        JOIN work_items source ON source.id = r.from_work_item_id
+        JOIN work_items target ON target.id = r.to_work_item_id
+        WHERE source.iteration_id = ? AND r.kind = 'blocked_by'
+        ORDER BY target.item_key
+      `)
+      .all(iterationId) as unknown as RelationshipRow[];
+    const blockersByItem = new Map<number, string[]>();
+    for (const relationship of relationshipRows) {
+      const blockers = blockersByItem.get(relationship.from_id) ?? [];
+      blockers.push(relationship.target_key);
+      blockersByItem.set(relationship.from_id, blockers);
+    }
+    const items = itemRows.map((item) => ({
+      ...item,
+      blocked_by: blockersByItem.get(item.id) ?? [],
+    }));
 
     this.transaction(() => {
       this.database
@@ -259,7 +293,7 @@ export class SprintLedger {
         VALUES (?, ?, ?)
       `);
       for (const item of items) {
-        insertItem.run(snapshotId, item.id as number, JSON.stringify(item));
+        insertItem.run(snapshotId, item.id, JSON.stringify(item));
       }
     });
 
@@ -293,6 +327,18 @@ export class SprintLedger {
       iterationName: snapshot.iteration_name,
       items: itemRows.map((row) => JSON.parse(row.state_json) as Record<string, unknown>),
     };
+  }
+
+  getRecentSnapshots(limit = 2): StoredSnapshot[] {
+    const rows = this.database
+      .prepare(`
+        SELECT id
+        FROM sprint_snapshots
+        ORDER BY captured_at DESC
+        LIMIT ?
+      `)
+      .all(limit) as unknown as Array<{ id: string }>;
+    return rows.map((row) => this.getSnapshot(row.id));
   }
 
   count(

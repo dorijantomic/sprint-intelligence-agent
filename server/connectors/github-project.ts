@@ -52,6 +52,7 @@ const PROJECT_QUERY = `
             updatedAt
             state
             assignees(first: 10) { nodes { login } }
+            comments { totalCount }
             repository { nameWithOwner }
           }
           ... on PullRequest {
@@ -63,6 +64,7 @@ const PROJECT_QUERY = `
             state
             reviewDecision
             assignees(first: 10) { nodes { login } }
+            comments { totalCount }
             repository { nameWithOwner }
           }
         }
@@ -102,6 +104,7 @@ interface ProjectItem {
     state: string;
     reviewDecision?: string | null;
     assignees: { nodes: Array<{ login: string }> };
+    comments: { totalCount: number };
     repository: { nameWithOwner: string };
   } | null;
 }
@@ -169,6 +172,14 @@ function normalizeItem(
   if (!item.content || item.isArchived || !findIteration(item, iterationId)) return null;
 
   const priority = fieldByName(item, "Priority")?.name ?? null;
+  const reviewState =
+    item.content.reviewDecision === undefined
+      ? "none"
+      : item.content.reviewDecision === "APPROVED"
+        ? "approved"
+        : item.content.reviewDecision === "CHANGES_REQUESTED"
+          ? "changes_requested"
+          : "pending";
   return {
     externalId: item.content.id,
     iterationExternalId: iterationId,
@@ -179,6 +190,8 @@ function normalizeItem(
     priority: priority?.toLowerCase() ?? null,
     assignee: item.content.assignees.nodes[0]?.login ?? null,
     estimate: normalizeEstimate(item),
+    commentCount: item.content.comments.totalCount,
+    reviewState,
     updatedAt: item.content.updatedAt,
     url: item.content.url,
     raw: item,

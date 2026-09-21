@@ -1,4 +1,4 @@
-import type { SprintSnapshot } from "../domain/types";
+import type { SprintSnapshot } from "../domain/types.js";
 
 const repo = "https://github.com/acme/checkout";
 
