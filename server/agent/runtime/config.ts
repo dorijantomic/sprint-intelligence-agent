@@ -107,6 +107,17 @@ export async function resolveAgentRuntime(
     });
   }
 
+  if (provider === "gemini") {
+    if (!apiKey) throw new Error("AGENT_API_KEY is required for Gemini");
+    return new OpenAICompatibleRuntime({
+      provider: "google-gemini",
+      apiKey,
+      baseUrl:
+        baseUrl ?? "https://generativelanguage.googleapis.com/v1beta/openai/",
+      model: model ?? "gemini-3.8-flash",
+    });
+  }
+
   if (provider === "openai-compatible") {
     if (!baseUrl) {
       throw new Error("AGENT_BASE_URL is required for an OpenAI-compatible agent");
@@ -132,6 +143,6 @@ export async function resolveAgentRuntime(
   }
 
   throw new Error(
-    `Unsupported AGENT_PROVIDER "${provider}". Use openai, openai-compatible, custom, or deterministic.`,
+    `Unsupported AGENT_PROVIDER "${provider}". Use openai, gemini, openai-compatible, custom, or deterministic.`,
   );
 }

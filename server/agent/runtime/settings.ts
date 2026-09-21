@@ -4,6 +4,7 @@ import { dirname, resolve } from "node:path";
 export type AgentProvider =
   | "deterministic"
   | "openai"
+  | "gemini"
   | "openai-compatible"
   | "custom";
 
@@ -33,6 +34,7 @@ const defaultConfig: StoredAgentConfig = {
 const providers = new Set<AgentProvider>([
   "deterministic",
   "openai",
+  "gemini",
   "openai-compatible",
   "custom",
 ]);
@@ -82,6 +84,11 @@ export function parseAgentConfig(
   if (provider === "openai") {
     config.model ??= "gpt-5.6";
     if (!config.apiKey) throw new Error("An API key is required for OpenAI");
+  }
+  if (provider === "gemini") {
+    config.model ??= "gemini-3.8-flash";
+    config.baseUrl = "https://generativelanguage.googleapis.com/v1beta/openai/";
+    if (!config.apiKey) throw new Error("A Google AI Studio API key is required");
   }
   if (provider === "openai-compatible") {
     if (!config.model) throw new Error("A model is required");

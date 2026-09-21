@@ -87,4 +87,20 @@ describe("AgentConfigStore", () => {
 
     expect((await configStore.read())?.apiKey).toBeNull();
   });
+
+  it("fills Gemini endpoint and model defaults from only an AI Studio key", async () => {
+    const configStore = await store();
+    await configStore.save({
+      provider: "gemini",
+      apiKey: "gemini-test-key",
+    });
+
+    expect(await configStore.read()).toEqual({
+      provider: "gemini",
+      model: "gemini-3.8-flash",
+      apiKey: "gemini-test-key",
+      baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai/",
+      runtimeModule: null,
+    });
+  });
 });

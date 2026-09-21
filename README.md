@@ -91,6 +91,10 @@ AGENT_PROVIDER=openai
 AGENT_MODEL=gpt-5.6
 AGENT_API_KEY=...
 
+# Google Gemini with an AI Studio key; endpoint and default model are automatic
+AGENT_PROVIDER=gemini
+AGENT_API_KEY=...
+
 # Any service implementing OpenAI-compatible Chat Completions, including
 # local Ollama, LM Studio, or vLLM endpoints
 AGENT_PROVIDER=openai-compatible

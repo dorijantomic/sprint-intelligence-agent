@@ -258,10 +258,15 @@ function AgentSettingsDialog({
   function selectProvider(next: AgentProvider) {
     setProvider(next);
     setMessage(null);
-    if (next === "openai" && !model) setModel("gpt-5.6");
-    if (next === "openai-compatible" && !baseUrl) {
+    setApiKey("");
+    setClearApiKey(false);
+    if (next === "openai") setModel("gpt-5.6");
+    if (next === "gemini") setModel("gemini-3.8-flash");
+    if (next === "openai-compatible") {
+      setModel("");
       setBaseUrl("http://127.0.0.1:11434/v1");
     }
+    if (next === "custom" || next === "deterministic") setModel("");
   }
 
   async function saveAndTest() {
@@ -342,6 +347,7 @@ function AgentSettingsDialog({
               >
                 <option value="deterministic">Deterministic · no external AI</option>
                 <option value="openai">OpenAI Responses</option>
+                <option value="gemini">Google Gemini · AI Studio key</option>
                 <option value="openai-compatible">OpenAI-compatible endpoint</option>
                 <option value="custom">Custom agent runtime module</option>
               </select>
@@ -381,7 +387,7 @@ function AgentSettingsDialog({
                   </label>
                 )}
                 <label>
-                  API key {provider !== "openai" && <span className="optional-label">optional</span>}
+                  {provider === "gemini" ? "Google AI Studio key" : "API key"} {!["openai", "gemini"].includes(provider) && <span className="optional-label">optional</span>}
                   <input
                     autoComplete="new-password"
                     disabled={!config.editable || clearApiKey}

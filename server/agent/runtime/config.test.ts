@@ -37,6 +37,22 @@ describe("resolveAgentRuntime", () => {
     );
   });
 
+  it("configures Gemini from an AI Studio key without requiring a base URL", async () => {
+    vi.stubEnv("AGENT_PROVIDER", "gemini");
+    vi.stubEnv("AGENT_API_KEY", "gemini-test-key");
+    vi.stubEnv("AGENT_MODEL", "");
+    vi.stubEnv("AGENT_BASE_URL", "");
+
+    const runtime = await resolveAgentRuntime();
+
+    expect(runtime).toEqual(
+      expect.objectContaining({
+        provider: "google-gemini",
+        model: "gemini-3.8-flash",
+      }),
+    );
+  });
+
   it("loads a supplied custom agent runtime module", async () => {
     const directory = await mkdtemp(join(tmpdir(), "orbit-agent-runtime-"));
     temporaryDirectories.push(directory);
