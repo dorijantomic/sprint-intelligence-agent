@@ -73,7 +73,7 @@ const PROJECT_QUERY = `
   }
 `;
 
-interface GitHubProjectConnectorOptions {
+export interface GitHubProjectConnectorOptions {
   owner: string;
   projectNumber: number;
   iterationId: string;
