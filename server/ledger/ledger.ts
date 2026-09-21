@@ -93,7 +93,7 @@ export interface AgentRunInput {
   snapshotId: string | null;
   question: string;
   answer: unknown;
-  mode: "model" | "deterministic";
+  mode: "agent" | "deterministic";
   model: string | null;
   toolCalls: string[];
   startedAt: string;

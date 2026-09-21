@@ -19,9 +19,10 @@ export interface AgentAnswer {
   answer: string;
   claims: AgentClaim[];
   evidence: EvidenceLink[];
-  mode: "model" | "deterministic";
+  mode: "agent" | "deterministic";
+  provider: string | null;
   model: string | null;
-  fallbackReason: "model_not_configured" | "model_error" | null;
+  fallbackReason: "agent_not_configured" | "agent_error" | null;
   toolsUsed: AgentToolTrace[];
   telemetry: {
     durationMs: number;

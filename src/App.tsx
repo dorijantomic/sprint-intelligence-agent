@@ -504,11 +504,11 @@ function App() {
               {agentResult && (
                 <div className="agent-trace" aria-label="Agent execution trace">
                   <span>
-                    {agentResult.mode === "model"
-                      ? agentResult.model
-                      : agentResult.fallbackReason === "model_not_configured"
-                        ? "Rules-only · no model key"
-                        : "Rules-only · model fallback"}
+                    {agentResult.mode === "agent"
+                      ? `${agentResult.provider ?? "custom"} · ${agentResult.model}`
+                      : agentResult.fallbackReason === "agent_not_configured"
+                        ? "Rules-only · no agent configured"
+                        : "Rules-only · agent fallback"}
                   </span>
                   <span>{agentResult.toolsUsed.length} ledger tool{agentResult.toolsUsed.length === 1 ? "" : "s"}</span>
                   <span>{agentResult.claims.length} cited claim{agentResult.claims.length === 1 ? "" : "s"}</span>

@@ -213,7 +213,8 @@ describe("dashboard API", () => {
             url: "https://example.test/issues/142",
           },
         ],
-        mode: "model",
+        mode: "agent",
+        provider: "test-provider",
         model: "test-model",
         fallbackReason: null,
         toolsUsed: [],
@@ -242,7 +243,7 @@ describe("dashboard API", () => {
     expect(response.status).toBe(200);
     expect(body.answer).toEqual(
       expect.objectContaining({
-        mode: "model",
+        mode: "agent",
         answer: expect.stringContaining("#142"),
       }),
     );

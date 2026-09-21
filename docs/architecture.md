@@ -18,7 +18,9 @@ Computes facts that should not depend on model judgment: field changes, addition
 
 ### Agent
 
-Uses five narrow read tools over the ledger: overview, changes, deterministic risks, work-item/blocker detail, and activity. The model selects tools through strict function schemas, while the application executes them and keeps fact and evidence registries for that run. Each submitted claim must cite retrieved fact IDs; the server derives the source links and rejects unknown grounding. Unsupported submissions fall back to deterministic narration. Every run records its tool trace, mode, latency, and token counts.
+Uses five narrow read tools over the ledger: overview, changes, deterministic risks, work-item/blocker detail, and activity. A provider-neutral `AgentRuntime` receives generic JSON-schema tool definitions and returns one normalized tool call per turn. Built-in adapters cover OpenAI Responses and OpenAI-compatible Chat Completions; a custom runtime module can bridge any other hosted model, local model, CLI agent, or agent service without changing the evidence loop.
+
+The application—not the supplied runtime—executes tools and keeps fact and evidence registries for that run. Each submitted claim must cite retrieved fact IDs; the server derives the source links and rejects unknown grounding. Unsupported submissions fall back to deterministic narration. Every run records its tool trace, provider, model, mode, latency, and token counts.
 
 ### API and React dashboard
 
@@ -47,7 +49,7 @@ Replays fixed sprint histories and scores factual correctness, citation validity
 
 ## Trust boundary
 
-Provider content is untrusted input. Connectors validate payloads, agent tools expose typed queries instead of arbitrary database access, secrets stay server-side, and all future write operations require an explicit approval record.
+Provider content and supplied-agent output are untrusted input. Connectors validate payloads, agent tools expose typed queries instead of arbitrary database access, secrets stay server-side, and all future write operations require an explicit approval record. Agent runtimes can request read tools but receive no ledger handle and cannot forge evidence accepted by the server. A custom runtime module is locally trusted executable code and should only be configured from a path controlled by the operator.
 
 Local GitHub ingestion reuses the authenticated `gh` CLI credential. CI may inject a token through the environment, while a deployed multi-user version will use GitHub App installations rather than user CLI credentials.
 

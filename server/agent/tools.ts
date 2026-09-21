@@ -1,4 +1,3 @@
-import type { FunctionTool } from "openai/resources/responses/responses";
 import {
   analyzeSprint,
   activityEventsToChanges,
@@ -13,6 +12,7 @@ import type {
 import { serializeSnapshot } from "../api/dashboard.js";
 import { SprintLedger } from "../ledger/ledger.js";
 import type { AgentToolTrace } from "./types.js";
+import type { AgentFunctionTool } from "./runtime/types.js";
 
 const emptyParameters = {
   type: "object",
@@ -21,21 +21,17 @@ const emptyParameters = {
   additionalProperties: false,
 } as const;
 
-export const ledgerToolDefinitions: FunctionTool[] = [
+export const ledgerToolDefinitions: AgentFunctionTool[] = [
   {
-    type: "function",
     name: "get_sprint_overview",
     description:
       "Get the current sprint, comparison window, aggregate progress, and item-level evidence. Call this before making sprint-wide claims.",
-    strict: true,
     parameters: emptyParameters,
   },
   {
-    type: "function",
     name: "list_sprint_changes",
     description:
       "List evidence-backed changes between the baseline and current sprint snapshots, including exact comment and review activity.",
-    strict: true,
     parameters: {
       type: "object",
       properties: {
@@ -50,11 +46,9 @@ export const ledgerToolDefinitions: FunctionTool[] = [
     },
   },
   {
-    type: "function",
     name: "list_sprint_risks",
     description:
       "List deterministic sprint risk signals. Facts and severities come from rules, not model judgment.",
-    strict: true,
     parameters: {
       type: "object",
       properties: {
@@ -73,11 +67,9 @@ export const ledgerToolDefinitions: FunctionTool[] = [
     },
   },
   {
-    type: "function",
     name: "get_work_item",
     description:
       "Get one current sprint item and recursively trace its blocked-by chain. Use the exact item ID shown by another tool.",
-    strict: true,
     parameters: {
       type: "object",
       properties: {
@@ -88,11 +80,9 @@ export const ledgerToolDefinitions: FunctionTool[] = [
     },
   },
   {
-    type: "function",
     name: "list_sprint_activity",
     description:
       "List exact comments, reviews, and observed updates recorded inside the snapshot comparison window.",
-    strict: true,
     parameters: {
       type: "object",
       properties: {

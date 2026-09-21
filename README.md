@@ -53,7 +53,7 @@ See [docs/architecture.md](docs/architecture.md) for the system boundaries and d
 
 The repository includes an interactive React dashboard, deterministic before/after sprint analysis, evidence-linked risk signals, a source-neutral SQLite ledger, a read-only GitHub Projects connector, and an evidence-constrained question-answering agent. Its setup flow discovers personal and organization projects from the active GitHub CLI login, stores the selected project and iteration in SQLite without storing credentials, and runs synchronization directly from the dashboard. The connector imports native blocker relationships plus timestamped comments and reviews, reconciles dependencies when they are removed, and records sync latency, API requests, throughput, and failures. Identical syncs do not create duplicate snapshots, concurrent syncs for one connection are rejected, and the first real snapshot can immediately power the dashboard. GitHub-specific data is normalized at the connector boundary so future Jira support does not change the ledger or analysis engine.
 
-The agent can call only five typed, read-only ledger tools: sprint overview, snapshot changes, deterministic risks, work-item/blocker detail, and timestamped activity. Model-generated claims are accepted only when every claim cites fact IDs retrieved during that run; the server resolves those facts to exact source links. Invalid or invented grounding triggers the deterministic fallback. Agent runs persist their tool trace, model, latency, and token counts for audit and evaluation.
+The agent can call only five typed, read-only ledger tools: sprint overview, snapshot changes, deterministic risks, work-item/blocker detail, and timestamped activity. Its runtime boundary is AI-provider-neutral: a hosted model, OpenAI-compatible local service, or custom agent module receives the same tool definitions and returns normalized tool calls. Model-generated claims are accepted only when every claim cites fact IDs retrieved during that run; the server resolves those facts to exact source links. Invalid or invented grounding triggers the deterministic fallback. Agent runs persist their tool trace, provider, model, latency, and token counts for audit and evaluation.
 
 The public [demo sprint board](https://github.com/users/dorijantomic/projects/1) contains the live iteration, priorities, estimates, comments, scope change, and dependency chain used to exercise the connector end to end.
 
@@ -76,7 +76,35 @@ Start the application, choose **Connect GitHub**, discover your projects, select
 
 For scripts or CI, the existing command-line path remains available: copy `.env.example` to `.env`, provide the Project and iteration identifiers, then run `npm run sync:github`. `GITHUB_TOKEN` remains available as an optional CI override.
 
-Model narration is optional. Add `OPENAI_API_KEY` to `.env` to enable the Responses API tool-calling loop; `OPENAI_MODEL` defaults to `gpt-5.6`. Without a key, the same `/api/agent/ask` endpoint uses the deterministic analyzers and still returns structured claims, citations, and a tool trace.
+AI narration is optional. Without an agent configuration, `/api/agent/ask` uses the deterministic analyzers and still returns structured claims, citations, and a tool trace.
+
+The built-in runtime choices use generic `AGENT_*` settings:
+
+```env
+# No external model
+AGENT_PROVIDER=deterministic
+
+# OpenAI Responses adapter
+AGENT_PROVIDER=openai
+AGENT_MODEL=gpt-5.6
+AGENT_API_KEY=...
+
+# Any service implementing OpenAI-compatible Chat Completions, including
+# local Ollama, LM Studio, or vLLM endpoints
+AGENT_PROVIDER=openai-compatible
+AGENT_BASE_URL=http://localhost:11434/v1
+AGENT_MODEL=your-tool-capable-model
+AGENT_API_KEY=local
+```
+
+Agents that use a different API are supplied as a runtime module:
+
+```env
+AGENT_PROVIDER=custom
+AGENT_RUNTIME_MODULE=./local/my-agent-runtime.ts
+```
+
+That module exports `createAgentRuntime` (or a default factory) returning the `AgentRuntime` contract from `server/agent/runtime/types.ts`. It can use Anthropic, Gemini, a local CLI agent, an internal service, or another implementation. The runtime only requests typed tool calls; Orbit executes those calls, validates cited fact IDs, and resolves evidence itself. This keeps provider credentials and SDK details outside the sprint ledger and trust boundary. Existing `OPENAI_API_KEY` and `OPENAI_MODEL` settings continue to work as a backward-compatible OpenAI shortcut.
 
 Quality checks:
 

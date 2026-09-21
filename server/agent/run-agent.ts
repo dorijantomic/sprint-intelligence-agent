@@ -1,11 +1,3 @@
-import OpenAI from "openai";
-import type {
-  FunctionTool,
-  Response,
-  ResponseCreateParamsNonStreaming,
-  ResponseInput,
-  ResponseInputItem,
-} from "openai/resources/responses/responses";
 import {
   analyzeSprint,
   answerSprintQuestion,
@@ -13,6 +5,12 @@ import {
 import type { EvidenceLink } from "../../src/domain/types.js";
 import { serializeSnapshot } from "../api/dashboard.js";
 import { SprintLedger } from "../ledger/ledger.js";
+import { resolveAgentRuntime } from "./runtime/config.js";
+import type {
+  AgentConversationItem,
+  AgentFunctionTool,
+  AgentRuntime,
+} from "./runtime/types.js";
 import { ledgerToolDefinitions, SprintLedgerTools } from "./tools.js";
 import type { AgentAnswer, AgentClaim, SubmittedAnswer } from "./types.js";
 
@@ -31,12 +29,10 @@ Rules:
 - The comparison window is defined by the snapshot timestamps, even if the user says "Monday".
 - When ready, call submit_answer. Do not produce an uncited prose response.`;
 
-const submitAnswerTool: FunctionTool = {
-  type: "function",
+const submitAnswerTool: AgentFunctionTool = {
   name: "submit_answer",
   description:
     "Submit the final evidence-backed answer after reading enough ledger data. Every claim must cite retrieved fact IDs.",
-  strict: true,
   parameters: {
     type: "object",
     properties: {
@@ -67,11 +63,8 @@ const submitAnswerTool: FunctionTool = {
 };
 
 export interface SprintAgentOptions {
-  apiKey?: string | null;
-  model?: string;
-  createResponse?: (
-    parameters: ResponseCreateParamsNonStreaming,
-  ) => Promise<Response>;
+  /** Supply any runtime implementing the provider-neutral tool-call contract. */
+  runtime?: AgentRuntime | null;
 }
 
 function parseSubmittedAnswer(value: string): SubmittedAnswer {
@@ -235,6 +228,7 @@ function deterministicAnswer(
     claims,
     evidence,
     mode: "deterministic",
+    provider: null,
     model: null,
     fallbackReason,
     toolsUsed: tools.trace,
@@ -279,13 +273,22 @@ export async function runSprintAgent(
   const startedAt = new Date().toISOString();
   const started = performance.now();
   const tools = new SprintLedgerTools(ledger);
-  const apiKey =
-    options.apiKey !== undefined
-      ? options.apiKey
-      : process.env.OPENAI_API_KEY?.trim() || null;
-  const model = options.model ?? process.env.OPENAI_MODEL?.trim() ?? "gpt-5.6";
+  let runtime: AgentRuntime | null;
+  try {
+    runtime = options.runtime !== undefined
+      ? options.runtime
+      : await resolveAgentRuntime();
+  } catch {
+    return recordRun(
+      ledger,
+      tools,
+      question,
+      deterministicAnswer(ledger, tools, question, started, "agent_error"),
+      startedAt,
+    );
+  }
 
-  if (!apiKey && !options.createResponse) {
+  if (!runtime) {
     return recordRun(
       ledger,
       tools,
@@ -295,49 +298,34 @@ export async function runSprintAgent(
         tools,
         question,
         started,
-        "model_not_configured",
+        "agent_not_configured",
       ),
       startedAt,
     );
   }
 
-  const client = options.createResponse
-    ? null
-    : new OpenAI({
-        apiKey: apiKey ?? undefined,
-        timeout: 20_000,
-        maxRetries: 1,
-      });
-  const createResponse = options.createResponse ?? ((parameters) =>
-    client!.responses.create(parameters));
-  const input: ResponseInput = [{ role: "user", content: question }];
+  const conversation: AgentConversationItem[] = [
+    { role: "user", content: question },
+  ];
   let modelCalls = 0;
   let inputTokens = 0;
   let outputTokens = 0;
 
   try {
     for (let turn = 0; turn < MAX_MODEL_TURNS; turn += 1) {
-      const response = await createResponse({
-        model,
+      const turnResult = await runtime.nextTurn({
         instructions,
-        input,
+        conversation,
         tools:
           tools.trace.length === 0
             ? ledgerToolDefinitions
             : [...ledgerToolDefinitions, submitAnswerTool],
-        tool_choice: "required",
-        parallel_tool_calls: false,
-        store: false,
-        max_output_tokens: 1200,
       });
       modelCalls += 1;
-      inputTokens += response.usage?.input_tokens ?? 0;
-      outputTokens += response.usage?.output_tokens ?? 0;
-      input.push(...(response.output as ResponseInputItem[]));
-      const call = response.output.find((item) => item.type === "function_call");
-      if (!call || call.type !== "function_call") {
-        throw new Error("Agent did not call a required tool");
-      }
+      inputTokens += turnResult.usage.inputTokens;
+      outputTokens += turnResult.usage.outputTokens;
+      const call = turnResult.toolCall;
+      conversation.push({ role: "assistant", toolCall: call });
 
       if (call.name === "submit_answer") {
         const claims = validatedClaims(parseSubmittedAnswer(call.arguments), tools);
@@ -348,8 +336,9 @@ export async function runSprintAgent(
           answer: claims.map((claim) => claim.text).join(" "),
           claims,
           evidence: evidenceForClaims(claims, tools),
-          mode: "model",
-          model,
+          mode: "agent",
+          provider: runtime.provider,
+          model: runtime.model,
           fallbackReason: null,
           toolsUsed: tools.trace,
           telemetry: {
@@ -362,11 +351,11 @@ export async function runSprintAgent(
         return recordRun(ledger, tools, question, answer, startedAt);
       }
 
-      const result = tools.execute(call.name, call.arguments);
-      input.push({
-        type: "function_call_output",
-        call_id: call.call_id,
-        output: JSON.stringify(result),
+      const toolResult = tools.execute(call.name, call.arguments);
+      conversation.push({
+        role: "tool",
+        toolCallId: call.id,
+        content: JSON.stringify(toolResult),
       });
     }
     throw new Error("Agent exceeded its tool-call budget");
@@ -376,9 +365,10 @@ export async function runSprintAgent(
       tools,
       question,
       started,
-      "model_error",
+      "agent_error",
     );
-    fallback.model = modelCalls > 0 ? model : null;
+    fallback.provider = modelCalls > 0 ? runtime.provider : null;
+    fallback.model = modelCalls > 0 ? runtime.model : null;
     fallback.telemetry.modelCalls = modelCalls;
     fallback.telemetry.inputTokens = inputTokens;
     fallback.telemetry.outputTokens = outputTokens;

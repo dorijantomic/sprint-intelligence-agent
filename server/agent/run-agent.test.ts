@@ -1,24 +1,33 @@
-import type { Response } from "openai/resources/responses/responses";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { seedDemoLedger } from "../fixtures/seed-demo.js";
 import { SprintLedger } from "../ledger/ledger.js";
 import { runSprintAgent } from "./run-agent.js";
+import type {
+  AgentFunctionTool,
+  AgentRuntime,
+  AgentTurnResult,
+} from "./runtime/types.js";
 
-function modelResponse(
+function modelTurn(
   name: string,
   argumentsValue: Record<string, unknown>,
-): Response {
+): AgentTurnResult {
   return {
-    output: [
-      {
-        type: "function_call",
-        call_id: `call-${name}`,
-        name,
-        arguments: JSON.stringify(argumentsValue),
-      },
-    ],
-    usage: { input_tokens: 20, output_tokens: 10 },
-  } as unknown as Response;
+    toolCall: {
+      id: `call-${name}`,
+      name,
+      arguments: JSON.stringify(argumentsValue),
+    },
+    usage: { inputTokens: 20, outputTokens: 10 },
+  };
+}
+
+function fakeRuntime(nextTurn: AgentRuntime["nextTurn"]): AgentRuntime {
+  return {
+    provider: "test-provider",
+    model: "test-model",
+    nextTurn,
+  };
 }
 
 describe("runSprintAgent", () => {
@@ -26,16 +35,16 @@ describe("runSprintAgent", () => {
 
   afterEach(() => ledger?.close());
 
-  it("uses the deterministic evidence-backed path without an API key", async () => {
+  it("uses the deterministic evidence-backed path without an agent runtime", async () => {
     ledger = new SprintLedger();
     seedDemoLedger(ledger);
 
     const answer = await runSprintAgent(ledger, "What is blocked?", {
-      apiKey: null,
+      runtime: null,
     });
 
     expect(answer.mode).toBe("deterministic");
-    expect(answer.fallbackReason).toBe("model_not_configured");
+    expect(answer.fallbackReason).toBe("agent_not_configured");
     expect(answer.answer).toContain("#142");
     expect(answer.evidence).toEqual(
       expect.arrayContaining([
@@ -49,20 +58,20 @@ describe("runSprintAgent", () => {
     expect(ledger.count("agent_runs")).toBe(1);
   });
 
-  it("executes model-selected tools and accepts only retrieved citations", async () => {
+  it("executes agent-selected tools and accepts only retrieved citations", async () => {
     ledger = new SprintLedger();
     seedDemoLedger(ledger);
-    const createResponse = vi
+    const nextTurn = vi
       .fn()
       .mockResolvedValueOnce(
-        modelResponse("list_sprint_risks", {
+        modelTurn("list_sprint_risks", {
           kind: "blocked",
           severity: "all",
           limit: 10,
         }),
       )
       .mockResolvedValueOnce(
-        modelResponse("submit_answer", {
+        modelTurn("submit_answer", {
           claims: [
             {
               text: "#142 is blocked by #139.",
@@ -75,12 +84,10 @@ describe("runSprintAgent", () => {
       );
 
     const answer = await runSprintAgent(ledger, "What is blocked?", {
-      apiKey: "test-key",
-      model: "test-model",
-      createResponse,
+      runtime: fakeRuntime(nextTurn),
     });
 
-    expect(answer.mode).toBe("model");
+    expect(answer.mode).toBe("agent");
     expect(answer.fallbackReason).toBeNull();
     expect(answer.answer).toBe("#142 is blocked by #139.");
     expect(answer.evidence.map((item) => item.id)).toEqual([
@@ -91,17 +98,28 @@ describe("runSprintAgent", () => {
     expect(answer.telemetry).toEqual(
       expect.objectContaining({ modelCalls: 2, inputTokens: 40, outputTokens: 20 }),
     );
-    expect(createResponse).toHaveBeenCalledTimes(2);
+    expect(answer.provider).toBe("test-provider");
+    expect(nextTurn).toHaveBeenCalledTimes(2);
+    expect(
+      nextTurn.mock.calls[0]?.[0].tools.map(
+        (tool: AgentFunctionTool) => tool.name,
+      ),
+    ).not.toContain("submit_answer");
+    expect(
+      nextTurn.mock.calls[1]?.[0].tools.map(
+        (tool: AgentFunctionTool) => tool.name,
+      ),
+    ).toContain("submit_answer");
   });
 
-  it("falls back when a model cites evidence it never retrieved", async () => {
+  it("falls back when an agent cites evidence it never retrieved", async () => {
     ledger = new SprintLedger();
     seedDemoLedger(ledger);
-    const createResponse = vi
+    const nextTurn = vi
       .fn()
-      .mockResolvedValueOnce(modelResponse("get_sprint_overview", {}))
+      .mockResolvedValueOnce(modelTurn("get_sprint_overview", {}))
       .mockResolvedValueOnce(
-        modelResponse("submit_answer", {
+        modelTurn("submit_answer", {
           claims: [
             {
               text: "A production outage occurred.",
@@ -114,12 +132,11 @@ describe("runSprintAgent", () => {
       );
 
     const answer = await runSprintAgent(ledger, "What changed?", {
-      apiKey: "test-key",
-      createResponse,
+      runtime: fakeRuntime(nextTurn),
     });
 
     expect(answer.mode).toBe("deterministic");
-    expect(answer.fallbackReason).toBe("model_error");
+    expect(answer.fallbackReason).toBe("agent_error");
     expect(answer.answer).not.toContain("production outage");
     expect(answer.evidence.every((item) => item.url.startsWith("https://"))).toBe(
       true,
