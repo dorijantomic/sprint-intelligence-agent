@@ -6,6 +6,8 @@
 
 Imports source objects and append-only activity. Checkpoints make repeated syncs idempotent, while raw provider payloads remain available for audit and parser upgrades.
 
+The core contract is provider-neutral. GitHub is the first live connector and Jira is a later connector; both normalize iterations, work items, relationships, and events into the same ledger without erasing their raw source payloads.
+
 ### Sprint ledger
 
 Stores normalized work items, relationships, events, sprint membership, and immutable snapshots. Business-time calculations use a configurable team calendar.
@@ -44,6 +46,10 @@ Replays fixed sprint histories and scores factual correctness, citation validity
 
 Provider content is untrusted input. Connectors validate payloads, agent tools expose typed queries instead of arbitrary database access, secrets stay server-side, and all future write operations require an explicit approval record.
 
-## First implementation slice
+## Implementation sequence
 
-Build a local fixture connector before GitHub OAuth. A deterministic fixture makes the ledger, diff engine, UI, and eval path testable without network access; the live connector can then target the same interface.
+1. Prove the diff and risk engine with deterministic snapshots.
+2. Add a source-neutral connector contract and local SQLite ledger.
+3. Add read-only GitHub ingestion and reconciliation.
+4. Put a narrow API between the ledger and dashboard.
+5. Add evidence-constrained model narration and evaluations.

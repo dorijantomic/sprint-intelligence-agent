@@ -1,13 +1,38 @@
+# Dependencies and build output
 node_modules/
-.env
-.env.*
-!.env.example
 dist/
 build/
 coverage/
+.vite/
+.vitest/
+.cache/
+*.tsbuildinfo
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Local databases and runtime data
+.data/
+*.sqlite
+*.sqlite3
+*.sqlite-shm
+*.sqlite-wal
+
+# Test artifacts
 .playwright/
 playwright-report/
 test-results/
-*.tsbuildinfo
+
+# Logs
 *.log
+npm-debug.log*
+
+# Editor and operating-system files
+.idea/
+.vscode/
+*.swp
+*.swo
 .DS_Store
+Thumbs.db

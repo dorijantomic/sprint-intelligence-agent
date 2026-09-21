@@ -38,7 +38,7 @@ flowchart LR
     A --> E[Evidence and eval traces]
 ```
 
-See [docs/architecture.md](docs/architecture.md) for the initial system boundaries and [docs/project-brief.md](docs/project-brief.md) for the MVP.
+See [docs/architecture.md](docs/architecture.md) for the system boundaries and data model.
 
 ## MVP
 
@@ -51,7 +51,7 @@ See [docs/architecture.md](docs/architecture.md) for the initial system boundari
 
 ## Repository status
 
-Milestone 1 is in progress. The repository includes an interactive React dashboard, deterministic before/after sprint analysis, evidence-linked risk signals, and unit tests over a representative fixture sprint.
+The repository includes an interactive React dashboard, deterministic before/after sprint analysis, evidence-linked risk signals, a source-neutral SQLite ledger, and a read-only GitHub Projects connector. GitHub-specific data is normalized at the connector boundary so future Jira support does not change the ledger or analysis engine.
 
 Run it locally:
 
@@ -67,14 +67,12 @@ npm test
 npm run build
 ```
 
-See [the product research](docs/research/product-research-2026-09-21.md) for the competitive and API findings, and [the implementation plan](docs/implementation-plan.md) for the sequenced roadmap.
-
 ## Intended stack
 
-- TypeScript monorepo
+- TypeScript application with separate browser and server boundaries
 - React dashboard
-- Node.js API and background sync worker
-- PostgreSQL for the event ledger and snapshots
+- Node.js sync worker with provider-neutral connectors
+- SQLite for local development and PostgreSQL for deployment
 - Playwright for end-to-end coverage
 - Vitest for unit and integration tests
 - GitHub Actions for CI and agent evaluations
