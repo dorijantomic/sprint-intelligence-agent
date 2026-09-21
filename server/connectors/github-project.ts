@@ -101,6 +101,7 @@ export interface GitHubProjectConnectorOptions {
   owner: string;
   projectNumber: number;
   iterationId: string;
+  projectTitle?: string;
   token: string;
   fetch?: typeof fetch;
 }
@@ -316,7 +317,7 @@ export class GitHubProjectConnector implements SourceConnector {
 
   constructor(private readonly options: GitHubProjectConnectorOptions) {
     this.connectionExternalId = `${options.owner}/projects/${options.projectNumber}`;
-    this.displayName = `${options.owner} · Project ${options.projectNumber}`;
+    this.displayName = `${options.owner} · ${options.projectTitle ?? `Project ${options.projectNumber}`}`;
     this.request = options.fetch ?? fetch;
   }
 

@@ -2,11 +2,11 @@
 
 ## Components
 
-### Connector and sync worker
+### Connector and sync service
 
 Imports source objects and append-only activity. Checkpoints make repeated syncs idempotent, while raw provider payloads remain available for audit and parser upgrades. Each run records latency, provider request count, throughput, and failure details; unchanged state does not produce a duplicate sprint snapshot.
 
-The core contract is provider-neutral. GitHub is the first live connector and Jira is a later connector; both normalize iterations, work items, relationships, and events into the same ledger without erasing their raw source payloads.
+The core contract is provider-neutral. GitHub is the first live connector and Jira is a later connector; both normalize iterations, work items, relationships, and events into the same ledger without erasing their raw source payloads. The local product runs syncs directly and prevents concurrent work for the same connection; a durable queue is intentionally deferred until hosted scale requires it.
 
 ### Sprint ledger
 
@@ -24,7 +24,7 @@ Uses narrow read tools over the ledger. It turns computed facts into explanation
 
 Presents the sprint overview, snapshot diff, dependency graph, evidence drawer, risk list, and conversational queries.
 
-During local development, the API reads immutable snapshots from SQLite and Vite proxies `/api` requests to it. The dashboard retains a bundled fixture only as an explicit fallback when the API is unavailable.
+During local development, the API reads immutable snapshots from SQLite and Vite proxies `/api` requests to it. The setup API uses the active `gh` login to discover projects and iterations, persists only non-secret connection metadata, and exposes a direct synchronization action. The dashboard retains a bundled fixture only as an explicit fallback when the API is unavailable.
 
 ### Evaluation harness
 

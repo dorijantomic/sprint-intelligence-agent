@@ -5,6 +5,15 @@ import { seedDemoLedger } from "../fixtures/seed-demo.js";
 import { SprintLedger } from "../ledger/ledger.js";
 import { createApiServer } from "./server.js";
 
+const githubConfig = {
+  owner: "maya",
+  projectNumber: 1,
+  projectTitle: "Delivery",
+  projectUrl: "https://github.com/users/maya/projects/1",
+  iterationId: "iteration-2",
+  iterationTitle: "Sprint 2",
+};
+
 describe("dashboard API", () => {
   const servers: Server[] = [];
   const ledgers: SprintLedger[] = [];
@@ -73,5 +82,111 @@ describe("dashboard API", () => {
         passed: true,
       }),
     );
+  });
+
+  it("saves and lists a GitHub connection without a token", async () => {
+    const ledger = new SprintLedger();
+    ledgers.push(ledger);
+    const server = createApiServer(ledger);
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address() as AddressInfo;
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+
+    const savedResponse = await fetch(`${baseUrl}/api/connections/github`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(githubConfig),
+    });
+    const saved = await savedResponse.json();
+    const listResponse = await fetch(`${baseUrl}/api/connections`);
+    const list = await listResponse.json();
+
+    expect(savedResponse.status).toBe(201);
+    expect(saved.connection).toEqual(
+      expect.objectContaining({
+        provider: "github",
+        displayName: "maya · Delivery",
+        config: githubConfig,
+      }),
+    );
+    expect(list.connections).toHaveLength(1);
+    expect(JSON.stringify(list)).not.toContain("token");
+  });
+
+  it("rejects concurrent syncs for the same connection", async () => {
+    const ledger = new SprintLedger();
+    ledgers.push(ledger);
+    const connection = ledger.saveConnectionConfig(
+      "github",
+      "maya/projects/1",
+      "maya · Delivery",
+      githubConfig,
+    );
+    let releaseSync!: () => void;
+    let markStarted!: () => void;
+    const syncStarted = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    const syncGate = new Promise<void>((resolve) => {
+      releaseSync = resolve;
+    });
+    const server = createApiServer(ledger, {
+      resolveToken: () => "secret",
+      syncConnection: async () => {
+        markStarted();
+        await syncGate;
+        return {
+          summary: {
+            batches: 1,
+            items: 3,
+            eventsAdded: 1,
+            relationships: 0,
+            cursor: null,
+            durationMs: 12,
+            requestCount: 1,
+          },
+          snapshotId: "snapshot-1",
+          snapshotCreated: true,
+          snapshotItems: 3,
+        };
+      },
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address() as AddressInfo;
+    const url = `http://127.0.0.1:${address.port}/api/connections/${connection.id}/sync`;
+
+    const firstRequest = fetch(url, { method: "POST" });
+    await syncStarted;
+    const duplicateResponse = await fetch(url, { method: "POST" });
+    const duplicate = await duplicateResponse.json();
+    releaseSync();
+    const firstResponse = await firstRequest;
+
+    expect(duplicateResponse.status).toBe(409);
+    expect(duplicate.kind).toBe("already_running");
+    expect(firstResponse.status).toBe(200);
+  });
+
+  it("surfaces GitHub authentication failures distinctly", async () => {
+    const ledger = new SprintLedger();
+    ledgers.push(ledger);
+    const server = createApiServer(ledger, {
+      resolveToken: () => {
+        throw new Error("GitHub authentication is unavailable. Run `gh auth login`.");
+      },
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address() as AddressInfo;
+
+    const response = await fetch(
+      `http://127.0.0.1:${address.port}/api/github/projects`,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(401);
+    expect(body.kind).toBe("authentication");
   });
 });

@@ -51,7 +51,7 @@ See [docs/architecture.md](docs/architecture.md) for the system boundaries and d
 
 ## Repository status
 
-The repository includes an interactive React dashboard, deterministic before/after sprint analysis, evidence-linked risk signals, a source-neutral SQLite ledger, and a read-only GitHub Projects connector. The connector imports native blocker relationships plus timestamped comments and reviews, reconciles dependencies when they are removed, and records sync latency, API requests, throughput, and failures. Identical syncs do not create duplicate snapshots. The dashboard returns exact activity from the snapshot window, links answers back to GitHub evidence, generates a deterministic holiday catch-up brief, and displays live synchronization and evaluation quality metrics. GitHub-specific data is normalized at the connector boundary so future Jira support does not change the ledger or analysis engine.
+The repository includes an interactive React dashboard, deterministic before/after sprint analysis, evidence-linked risk signals, a source-neutral SQLite ledger, and a read-only GitHub Projects connector. Its setup flow discovers personal and organization projects from the active GitHub CLI login, stores the selected project and iteration in SQLite without storing credentials, and runs synchronization directly from the dashboard. The connector imports native blocker relationships plus timestamped comments and reviews, reconciles dependencies when they are removed, and records sync latency, API requests, throughput, and failures. Identical syncs do not create duplicate snapshots, concurrent syncs for one connection are rejected, and the first real snapshot can immediately power the dashboard. GitHub-specific data is normalized at the connector boundary so future Jira support does not change the ledger or analysis engine.
 
 The public [demo sprint board](https://github.com/users/dorijantomic/projects/1) contains the live iteration, priorities, estimates, comments, scope change, and dependency chain used to exercise the connector end to end.
 
@@ -64,17 +64,15 @@ npm run dev
 
 This starts the ledger-backed API on port `8787` and the Vite dashboard on port `5173`. On first run, the API creates an ignored local SQLite database and seeds two demo snapshots so the complete persistence-to-dashboard path is immediately usable.
 
-To ingest a real GitHub Project iteration, authenticate GitHub CLI with read-only Projects access, copy `.env.example` to `.env`, provide the Project/iteration identifiers, then run:
+To connect a real GitHub Project iteration, authenticate GitHub CLI with read-only Projects access:
 
 ```bash
 gh auth refresh -s read:project
 ```
 
-```bash
-npm run sync:github
-```
+Start the application, choose **Connect GitHub**, discover your projects, select an iteration, and use **Sync now**. The local API resolves the active CLI credential only when it talks to GitHub; credentials are never returned to the browser or written to SQLite.
 
-The command reuses the active GitHub CLI login, normalizes the current iteration state, appends idempotent observation events, and creates an immutable snapshot. `GITHUB_TOKEN` remains available as an optional CI override; credentials are never written to the ledger or command output.
+For scripts or CI, the existing command-line path remains available: copy `.env.example` to `.env`, provide the Project and iteration identifiers, then run `npm run sync:github`. `GITHUB_TOKEN` remains available as an optional CI override.
 
 Quality checks:
 
@@ -90,9 +88,8 @@ The evaluation gate replays versioned sprint histories and measures factual corr
 
 - TypeScript application with separate browser and server boundaries
 - React dashboard
-- Node.js sync worker with provider-neutral connectors
+- Node.js sync service with provider-neutral connectors
 - SQLite for local development and PostgreSQL for deployment
-- Playwright for end-to-end coverage
 - Vitest for unit and integration tests
 - GitHub Actions for CI and agent evaluations
 

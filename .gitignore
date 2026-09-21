@@ -22,9 +22,6 @@ coverage/
 
 # Test artifacts
 .artifacts/
-.playwright/
-playwright-report/
-test-results/
 
 # Logs
 *.log

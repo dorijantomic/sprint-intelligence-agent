@@ -11,6 +11,12 @@ export const schema = `
     UNIQUE(provider, external_id)
   );
 
+  CREATE TABLE IF NOT EXISTS connection_configs (
+    source_connection_id INTEGER PRIMARY KEY REFERENCES source_connections(id) ON DELETE CASCADE,
+    config_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS iterations (
     id INTEGER PRIMARY KEY,
     source_connection_id INTEGER NOT NULL REFERENCES source_connections(id) ON DELETE CASCADE,
@@ -111,5 +117,5 @@ export const schema = `
   CREATE INDEX IF NOT EXISTS idx_sync_runs_connection
     ON sync_runs(source_connection_id, completed_at);
 
-  PRAGMA user_version = 2;
+  PRAGMA user_version = 3;
 `;

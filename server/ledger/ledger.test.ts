@@ -108,6 +108,33 @@ describe("SprintLedger", () => {
     expect(ledger.count("sync_runs")).toBe(1);
   });
 
+  it("persists provider configuration without credentials", () => {
+    ledger = new SprintLedger();
+    const saved = ledger.saveConnectionConfig(
+      "github",
+      "maya/projects/1",
+      "maya · Delivery",
+      {
+        owner: "maya",
+        projectNumber: 1,
+        iterationId: "iteration-2",
+      },
+    );
+
+    expect(ledger.getConnectionConfig(saved.id)).toEqual(
+      expect.objectContaining({
+        provider: "github",
+        externalId: "maya/projects/1",
+        config: {
+          owner: "maya",
+          projectNumber: 1,
+          iterationId: "iteration-2",
+        },
+      }),
+    );
+    expect(JSON.stringify(ledger.getConnectionConfigs())).not.toContain("token");
+  });
+
   it("is idempotent when the same provider data is synchronized twice", async () => {
     ledger = new SprintLedger();
     const connector = new FixtureConnector();

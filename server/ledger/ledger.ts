@@ -63,6 +63,15 @@ interface SyncRunRow {
   error_message: string | null;
 }
 
+interface ConnectionConfigRow {
+  id: number;
+  provider: ProviderKind;
+  external_id: string;
+  display_name: string;
+  config_json: string;
+  updated_at: string;
+}
+
 export interface StoredSnapshot {
   id: string;
   capturedAt: string;
@@ -102,6 +111,15 @@ export interface StoredSyncRun extends SyncRunInput {
 export interface SnapshotCreationResult {
   snapshot: StoredSnapshot;
   created: boolean;
+}
+
+export interface StoredConnectionConfig<T = Record<string, unknown>> {
+  id: number;
+  provider: ProviderKind;
+  externalId: string;
+  displayName: string;
+  config: T;
+  updatedAt: string;
 }
 
 export class SprintLedger {
@@ -147,6 +165,93 @@ export class SprintLedger {
       .get(provider, externalId, displayName, now, now) as unknown as IdRow;
 
     return row.id;
+  }
+
+  saveConnectionConfig<T extends Record<string, unknown>>(
+    provider: ProviderKind,
+    externalId: string,
+    displayName: string,
+    config: T,
+  ): StoredConnectionConfig<T> {
+    const connectionId = this.upsertConnection(provider, externalId, displayName);
+    const updatedAt = new Date().toISOString();
+    this.database
+      .prepare(`
+        INSERT INTO connection_configs (
+          source_connection_id, config_json, updated_at
+        ) VALUES (?, ?, ?)
+        ON CONFLICT(source_connection_id) DO UPDATE SET
+          config_json = excluded.config_json,
+          updated_at = excluded.updated_at
+      `)
+      .run(connectionId, JSON.stringify(config), updatedAt);
+
+    return {
+      id: connectionId,
+      provider,
+      externalId,
+      displayName,
+      config,
+      updatedAt,
+    };
+  }
+
+  getConnectionConfigs<T = Record<string, unknown>>(
+    provider?: ProviderKind,
+  ): Array<StoredConnectionConfig<T>> {
+    const rows = (provider
+      ? this.database
+          .prepare(`
+            SELECT c.id, c.provider, c.external_id, c.display_name,
+                   cfg.config_json, cfg.updated_at
+            FROM source_connections c
+            JOIN connection_configs cfg ON cfg.source_connection_id = c.id
+            WHERE c.provider = ?
+            ORDER BY cfg.updated_at DESC
+          `)
+          .all(provider)
+      : this.database
+          .prepare(`
+            SELECT c.id, c.provider, c.external_id, c.display_name,
+                   cfg.config_json, cfg.updated_at
+            FROM source_connections c
+            JOIN connection_configs cfg ON cfg.source_connection_id = c.id
+            ORDER BY cfg.updated_at DESC
+          `)
+          .all()) as unknown as ConnectionConfigRow[];
+
+    return rows.map((row) => ({
+      id: row.id,
+      provider: row.provider,
+      externalId: row.external_id,
+      displayName: row.display_name,
+      config: JSON.parse(row.config_json) as T,
+      updatedAt: row.updated_at,
+    }));
+  }
+
+  getConnectionConfig<T = Record<string, unknown>>(
+    connectionId: number,
+  ): StoredConnectionConfig<T> | null {
+    const row = this.database
+      .prepare(`
+        SELECT c.id, c.provider, c.external_id, c.display_name,
+               cfg.config_json, cfg.updated_at
+        FROM source_connections c
+        JOIN connection_configs cfg ON cfg.source_connection_id = c.id
+        WHERE c.id = ?
+      `)
+      .get(connectionId) as unknown as ConnectionConfigRow | undefined;
+    if (!row) return null;
+
+    return {
+      id: row.id,
+      provider: row.provider,
+      externalId: row.external_id,
+      displayName: row.display_name,
+      config: JSON.parse(row.config_json) as T,
+      updatedAt: row.updated_at,
+    };
   }
 
   upsertIteration(connectionId: number, iteration: NormalizedIteration): number {
