@@ -1,7 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { loadDashboard } from "./api/dashboard";
-import { currentSnapshot, mondaySnapshot } from "./data/demoSprint";
-import { analyzeSprint, answerSprintQuestion } from "./domain/analyzeSprint";
+import {
+  currentSnapshot,
+  demoActivityEvents,
+  mondaySnapshot,
+} from "./data/demoSprint";
+import {
+  activityEventsToChanges,
+  analyzeSprint,
+  answerSprintQuestion,
+  evidenceForSprintQuestion,
+} from "./domain/analyzeSprint";
 import type { SprintRisk, WorkStatus } from "./domain/types";
 
 const statusLabel: Record<WorkStatus, string> = {
@@ -15,6 +24,7 @@ const suggestedQuestions = [
   "What changed since Monday?",
   "What is blocked?",
   "Show me the sprint risks",
+  "Give me a holiday catch-up brief",
 ];
 
 function Logo() {
@@ -60,6 +70,7 @@ function App() {
   const [dataSource, setDataSource] = useState<"loading" | "ledger" | "fixture">(
     "loading",
   );
+  const [events, setEvents] = useState(demoActivityEvents);
   const baseline = snapshots.baseline;
   const current = snapshots.current;
   const analysis = useMemo(
@@ -67,15 +78,14 @@ function App() {
     [baseline, current],
   );
   const [question, setQuestion] = useState(suggestedQuestions[0]);
-  const [answer, setAnswer] = useState(() =>
-    answerSprintQuestion(suggestedQuestions[0], analysis),
-  );
+  const [askedQuestion, setAskedQuestion] = useState(suggestedQuestions[0]);
 
   useEffect(() => {
     const controller = new AbortController();
     loadDashboard(controller.signal)
       .then((payload) => {
         setSnapshots({ baseline: payload.baseline, current: payload.current });
+        setEvents(payload.events);
         setDataSource("ledger");
       })
       .catch((error: unknown) => {
@@ -85,9 +95,34 @@ function App() {
     return () => controller.abort();
   }, []);
 
-  useEffect(() => {
-    setAnswer(answerSprintQuestion(question, analysis));
-  }, [analysis]);
+  const answer = useMemo(
+    () => answerSprintQuestion(askedQuestion, analysis, events),
+    [askedQuestion, analysis, events],
+  );
+
+  const changeFeed = useMemo(() => {
+    const exactChanges = activityEventsToChanges(events);
+    const exactCommentItems = new Set(
+      exactChanges
+        .filter((change) => change.kind === "comments")
+        .map((change) => change.itemId),
+    );
+    return [
+      ...analysis.changes.filter(
+        (change) =>
+          change.kind !== "comments" || !exactCommentItems.has(change.itemId),
+      ),
+      ...exactChanges,
+    ].sort(
+      (a, b) =>
+        new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime(),
+    );
+  }, [analysis, events]);
+
+  const answerEvidence = useMemo(
+    () => evidenceForSprintQuestion(askedQuestion, analysis, events),
+    [askedQuestion, analysis, events],
+  );
 
   const progress = Math.round(
     (analysis.completedPoints / analysis.totalPoints) * 100,
@@ -97,7 +132,7 @@ function App() {
     const trimmed = value.trim();
     if (!trimmed) return;
     setQuestion(trimmed);
-    setAnswer(answerSprintQuestion(trimmed, analysis));
+    setAskedQuestion(trimmed);
   }
 
   return (
@@ -109,7 +144,7 @@ function App() {
             <span>⌁</span> Overview
           </a>
           <a className="nav-item" href="#changes">
-            <span>↯</span> Changes <b>{analysis.changes.length}</b>
+            <span>↯</span> Changes <b>{changeFeed.length}</b>
           </a>
           <a className="nav-item" href="#risks">
             <span>△</span> Risks <b>{analysis.risks.length}</b>
@@ -161,10 +196,25 @@ function App() {
                 <span className="evidence-mode">Evidence mode</span>
               </div>
               <p className="agent-answer">{answer}</p>
+              {answerEvidence.length > 0 && (
+                <div className="answer-evidence" aria-label="Answer evidence">
+                  <span>Sources</span>
+                  {answerEvidence.map((evidence) => (
+                    <a
+                      href={evidence.url}
+                      key={evidence.id}
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      {evidence.label} ↗
+                    </a>
+                  ))}
+                </div>
+              )}
               <div className="question-row">
                 {suggestedQuestions.map((item) => (
                   <button
-                    className={question === item ? "question active" : "question"}
+                    className={askedQuestion === item ? "question active" : "question"}
                     key={item}
                     onClick={() => ask(item)}
                   >
@@ -230,7 +280,7 @@ function App() {
                 <button className="text-button">View all →</button>
               </div>
               <div className="timeline">
-                {analysis.changes.slice(0, 6).map((item) => (
+                {changeFeed.slice(0, 6).map((item) => (
                   <a
                     className="timeline-item"
                     href={item.evidenceUrl}
@@ -239,7 +289,13 @@ function App() {
                     target="_blank"
                   >
                     <span className={`timeline-icon kind-${item.kind}`}>
-                      {item.kind === "comments" ? "··" : item.kind === "status" ? "↗" : "+"}
+                      {item.kind === "comments"
+                        ? "··"
+                        : item.kind === "review"
+                          ? "✓"
+                          : item.kind === "status"
+                            ? "↗"
+                            : "+"}
                     </span>
                     <span className="timeline-copy">
                       <strong>{item.summary}</strong>

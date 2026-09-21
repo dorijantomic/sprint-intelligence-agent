@@ -38,12 +38,34 @@ interface WorkItemRow extends Record<string, unknown> {
   id: number;
 }
 
+interface ActivityEventRow {
+  external_id: string;
+  item_key: string;
+  item_title: string;
+  kind: string;
+  occurred_at: string;
+  actor: string | null;
+  url: string | null;
+  payload_json: string;
+}
+
 export interface StoredSnapshot {
   id: string;
   capturedAt: string;
   iterationName: string;
   sourceName: string;
   items: Array<Record<string, unknown>>;
+}
+
+export interface StoredActivityEvent {
+  id: string;
+  itemId: string;
+  itemTitle: string;
+  kind: string;
+  occurredAt: string;
+  actor: string | null;
+  url: string | null;
+  payload: Record<string, unknown>;
 }
 
 export class SprintLedger {
@@ -355,11 +377,50 @@ export class SprintLedger {
       .prepare(`
         SELECT id
         FROM sprint_snapshots
+        WHERE iteration_id = (
+          SELECT iteration_id
+          FROM sprint_snapshots
+          ORDER BY captured_at DESC
+          LIMIT 1
+        )
         ORDER BY captured_at DESC
         LIMIT ?
       `)
       .all(limit) as unknown as Array<{ id: string }>;
     return rows.map((row) => this.getSnapshot(row.id));
+  }
+
+  getEventsBetweenSnapshots(
+    baselineSnapshotId: string,
+    currentSnapshotId: string,
+  ): StoredActivityEvent[] {
+    const rows = this.database
+      .prepare(`
+        SELECT e.external_id, w.item_key, w.title AS item_title, e.kind,
+               e.occurred_at, e.actor, e.url, e.payload_json
+        FROM sprint_snapshots baseline
+        JOIN sprint_snapshots current
+          ON current.id = ?
+         AND current.iteration_id = baseline.iteration_id
+        JOIN work_items w ON w.iteration_id = current.iteration_id
+        JOIN activity_events e ON e.work_item_id = w.id
+        WHERE baseline.id = ?
+          AND e.occurred_at > baseline.captured_at
+          AND e.occurred_at <= current.captured_at
+        ORDER BY e.occurred_at DESC, e.id DESC
+      `)
+      .all(currentSnapshotId, baselineSnapshotId) as unknown as ActivityEventRow[];
+
+    return rows.map((row) => ({
+      id: row.external_id,
+      itemId: row.item_key,
+      itemTitle: row.item_title,
+      kind: row.kind,
+      occurredAt: row.occurred_at,
+      actor: row.actor,
+      url: row.url,
+      payload: JSON.parse(row.payload_json) as Record<string, unknown>,
+    }));
   }
 
   count(

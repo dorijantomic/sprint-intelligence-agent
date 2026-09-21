@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { currentSnapshot, mondaySnapshot } from "../data/demoSprint";
-import { analyzeSprint, answerSprintQuestion } from "./analyzeSprint";
+import {
+  currentSnapshot,
+  demoActivityEvents,
+  mondaySnapshot,
+} from "../data/demoSprint";
+import {
+  activityEventsToChanges,
+  analyzeSprint,
+  answerSprintQuestion,
+  evidenceForSprintQuestion,
+} from "./analyzeSprint";
 
 describe("analyzeSprint", () => {
   it("finds status, comment, and scope changes", () => {
@@ -35,5 +44,34 @@ describe("analyzeSprint", () => {
 
     expect(answer).toContain("#142");
     expect(answer).toContain("#139");
+  });
+
+  it("builds a holiday catch-up brief from changes, risks, and exact events", () => {
+    const result = analyzeSprint(mondaySnapshot, currentSnapshot);
+    const answer = answerSprintQuestion(
+      "Give me a holiday catch up",
+      result,
+      demoActivityEvents,
+    );
+
+    expect(answer).toContain("Catch-up brief");
+    expect(answer).toContain("1 new comment");
+    expect(answer).toContain("1 review");
+    expect(evidenceForSprintQuestion("holiday catch up", result, demoActivityEvents))
+      .toHaveLength(2);
+  });
+
+  it("turns exact comment and review events into source-linked changes", () => {
+    const changes = activityEventsToChanges(demoActivityEvents);
+
+    expect(changes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "comments", itemId: "#142" }),
+        expect.objectContaining({ kind: "review", itemId: "#139" }),
+      ]),
+    );
+    expect(changes.every((change) => change.evidenceUrl.includes("github.com"))).toBe(
+      true,
+    );
   });
 });

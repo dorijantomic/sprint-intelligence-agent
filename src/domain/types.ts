@@ -25,12 +25,30 @@ export interface SprintSnapshot {
   items: WorkItem[];
 }
 
+export interface ActivityEvent {
+  id: string;
+  itemId: string;
+  itemTitle: string;
+  kind: string;
+  occurredAt: string;
+  actor: string | null;
+  url: string | null;
+  payload: Record<string, unknown>;
+}
+
+export interface EvidenceLink {
+  id: string;
+  label: string;
+  url: string;
+}
+
 export type ChangeKind =
   | "added"
   | "removed"
   | "status"
   | "assignee"
-  | "comments";
+  | "comments"
+  | "review";
 
 export interface SprintChange {
   id: string;

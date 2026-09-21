@@ -166,4 +166,36 @@ describe("SprintLedger", () => {
     );
     expect(ledger.count("sprint_snapshots")).toBe(1);
   });
+
+  it("returns exact activity evidence between two snapshots", async () => {
+    ledger = new SprintLedger();
+    const connector = new FixtureConnector();
+    await synchronize(ledger, connector);
+    const connectionId = ledger.upsertConnection(
+      connector.provider,
+      connector.connectionExternalId,
+      connector.displayName,
+    );
+    const baseline = ledger.createSnapshot(
+      connectionId,
+      "iteration-42",
+      "2026-09-18T09:00:00Z",
+    );
+    const current = ledger.createSnapshot(
+      connectionId,
+      "iteration-42",
+      "2026-09-18T11:00:00Z",
+    );
+
+    const events = ledger.getEventsBetweenSnapshots(baseline.id, current.id);
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        id: "event-1",
+        itemId: "#142",
+        kind: "commented",
+        actor: "Maya",
+      }),
+    ]);
+  });
 });

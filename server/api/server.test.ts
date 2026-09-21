@@ -40,5 +40,21 @@ describe("dashboard API", () => {
     expect(body.current.items).toContainEqual(
       expect.objectContaining({ id: "#142", blockedBy: ["#139"] }),
     );
+    expect(body.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "fixture-comment-142",
+          itemId: "#142",
+          kind: "commented",
+          actor: "Maya",
+        }),
+        expect.objectContaining({
+          id: "fixture-review-139",
+          itemId: "#139",
+          kind: "reviewed",
+          actor: "Iris",
+        }),
+      ]),
+    );
   });
 });

@@ -34,6 +34,10 @@ export function createApiServer(ledger: SprintLedger): Server {
       sendJson(response, 200, {
         baseline: serializeSnapshot(snapshots[1]),
         current: serializeSnapshot(snapshots[0]),
+        events: ledger.getEventsBetweenSnapshots(
+          snapshots[1].id,
+          snapshots[0].id,
+        ),
         source: "ledger",
       });
       return;

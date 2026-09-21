@@ -1,4 +1,4 @@
-import type { SprintSnapshot } from "../domain/types.js";
+import type { ActivityEvent, SprintSnapshot } from "../domain/types.js";
 
 const repo = "https://github.com/acme/checkout";
 
@@ -132,3 +132,33 @@ export const currentSnapshot: SprintSnapshot = {
     },
   ],
 };
+
+export const demoActivityEvents: ActivityEvent[] = [
+  {
+    id: "fixture-comment-142",
+    itemId: "#142",
+    itemTitle: "Retry payment authorization on transient failure",
+    kind: "commented",
+    occurredAt: "2026-09-18T10:05:00Z",
+    actor: "Maya",
+    url: `${repo}/issues/142#issuecomment-demo`,
+    payload: {
+      body: "Payment retries still depend on the idempotency changes in #139.",
+      source: "fixture",
+    },
+  },
+  {
+    id: "fixture-review-139",
+    itemId: "#139",
+    itemTitle: "Expose idempotency keys in payments client",
+    kind: "reviewed",
+    occurredAt: "2026-09-18T09:28:00Z",
+    actor: "Iris",
+    url: `${repo}/pull/139#pullrequestreview-demo`,
+    payload: {
+      body: "Please cover the timeout path before merge.",
+      state: "changes_requested",
+      source: "fixture",
+    },
+  },
+];

@@ -66,6 +66,10 @@ main { grid-column: 2; min-width: 0; }
 .agent-orb { display: grid; flex: 0 0 40px; height: 40px; place-items: center; color: #172027; background: #e4ff67; border-radius: 12px 12px 12px 3px; font-size: 19px; }
 .evidence-mode { margin-left: auto; padding: 6px 9px; color: #b6c0c5; border: 1px solid #3b464d; border-radius: 20px; font-size: 10px; }
 .agent-answer { position: relative; z-index: 1; max-width: 780px; min-height: 52px; margin: 25px 0 21px; color: #d3d9dc; font-family: Georgia, serif; font-size: 18px; line-height: 1.55; }
+.answer-evidence { position: relative; z-index: 1; display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin: -8px 0 18px; }
+.answer-evidence span { color: #7f8b91; font-size: 9px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.answer-evidence a { padding: 5px 8px; color: #d7e398; background: #273138; border: 1px solid #3b474d; border-radius: 6px; font-family: ui-monospace, monospace; font-size: 9px; text-decoration: none; }
+.answer-evidence a:hover { border-color: #7f8d50; }
 .question-row { position: relative; z-index: 1; display: flex; flex-wrap: wrap; gap: 7px; }
 .question { padding: 7px 10px; color: #9ca8ad; background: transparent; border: 1px solid #3c474e; border-radius: 20px; cursor: pointer; font-size: 10px; }
 .question:hover, .question.active { color: #172027; background: #e4ff67; border-color: #e4ff67; }
@@ -115,6 +119,7 @@ main { grid-column: 2; min-width: 0; }
 .timeline-icon { display: grid; flex: 0 0 31px; height: 31px; place-items: center; color: #70541d; background: #fae8bc; border-radius: 8px; font-size: 12px; font-weight: 800; }
 .kind-status { color: #315d7f; background: #dcebf4; }
 .kind-comments { color: #5c487c; background: #e9e1f5; }
+.kind-review { color: #356143; background: #dfeee2; }
 .timeline-copy, .work-copy { display: grid; min-width: 0; gap: 5px; }
 .timeline-copy strong, .work-copy strong { overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .timeline-copy small, .work-copy small { color: #90979a; font-size: 9px; }

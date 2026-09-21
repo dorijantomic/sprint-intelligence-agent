@@ -1,4 +1,6 @@
 import type {
+  ActivityEvent,
+  EvidenceLink,
   SprintAnalysis,
   SprintChange,
   SprintRisk,
@@ -195,11 +197,31 @@ export function analyzeSprint(
 export function answerSprintQuestion(
   question: string,
   analysis: SprintAnalysis,
+  events: ActivityEvent[] = [],
 ): string {
   const normalized = question.toLowerCase();
   const highRisks = analysis.risks.filter((item) => item.severity === "high");
   const blockers = analysis.risks.filter((item) => item.kind === "blocked");
   const stale = analysis.risks.filter((item) => item.kind === "stale");
+  const comments = events.filter((event) => event.kind === "commented");
+  const reviews = events.filter((event) => event.kind === "reviewed");
+
+  if (normalized.includes("holiday") || normalized.includes("catch up")) {
+    const completedSinceBaseline = analysis.changes.filter(
+      (item) => item.kind === "status" && item.summary.endsWith("to done"),
+    ).length;
+    return `Catch-up brief: ${completedSinceBaseline} item${completedSinceBaseline === 1 ? "" : "s"} completed and ${analysis.addedCount} entered scope. ${blockers.length} item${blockers.length === 1 ? " is" : "s are"} blocked, with ${highRisks.length} high-severity risk${highRisks.length === 1 ? "" : "s"}. ${comments.length} new comment${comments.length === 1 ? "" : "s"} and ${reviews.length} review${reviews.length === 1 ? "" : "s"} were recorded in the evidence window.`;
+  }
+
+  if (normalized.includes("comment") || normalized.includes("decision")) {
+    if (comments.length === 0) return "No exact comment events were recorded in this snapshot window.";
+    return `${comments.length} new comment${comments.length === 1 ? "" : "s"}: ${comments.map((event) => `${event.actor ?? "Someone"} on ${event.itemId}`).join(", ")}.`;
+  }
+
+  if (normalized.includes("review")) {
+    if (reviews.length === 0) return "No review events were recorded in this snapshot window.";
+    return `${reviews.length} review${reviews.length === 1 ? "" : "s"}: ${reviews.map((event) => `${event.actor ?? "Someone"} on ${event.itemId} (${String(event.payload.state ?? "submitted").replaceAll("_", " ")})`).join(", ")}.`;
+  }
 
   if (normalized.includes("block")) {
     if (blockers.length === 0) return "No open blocking relationships were found.";
@@ -216,4 +238,61 @@ export function answerSprintQuestion(
   }
 
   return `${analysis.changes.length} material changes since Monday: ${analysis.completedCount} items are done, ${analysis.addedCount} entered scope, and ${analysis.risks.length} risks need attention. Highest priority: ${highRisks.map((item) => `${item.itemId} (${item.title.toLowerCase()})`).join(", ") || "none"}.`;
+}
+
+export function activityEventsToChanges(
+  events: ActivityEvent[],
+): SprintChange[] {
+  return events
+    .filter(
+      (event) =>
+        (event.kind === "commented" || event.kind === "reviewed") && event.url,
+    )
+    .map((event) => {
+      const actor = event.actor ?? "Someone";
+      const isReview = event.kind === "reviewed";
+      const state = String(event.payload.state ?? "submitted").replaceAll("_", " ");
+      return {
+        id: `event-${event.id}`,
+        itemId: event.itemId,
+        kind: isReview ? "review" : "comments",
+        summary: isReview
+          ? `${actor} reviewed ${event.itemId} · ${state}`
+          : `${actor} commented on ${event.itemId}`,
+        occurredAt: event.occurredAt,
+        evidenceUrl: event.url!,
+      };
+    });
+}
+
+export function evidenceForSprintQuestion(
+  question: string,
+  analysis: SprintAnalysis,
+  events: ActivityEvent[],
+): EvidenceLink[] {
+  const normalized = question.toLowerCase();
+  let relevantEvents = events.filter(
+    (event) =>
+      event.url !== null &&
+      (event.kind === "commented" || event.kind === "reviewed"),
+  );
+
+  if (normalized.includes("comment") || normalized.includes("decision")) {
+    relevantEvents = relevantEvents.filter((event) => event.kind === "commented");
+  } else if (normalized.includes("review")) {
+    relevantEvents = relevantEvents.filter((event) => event.kind === "reviewed");
+  } else if (normalized.includes("block")) {
+    const blockedIds = new Set(
+      analysis.risks
+        .filter((risk) => risk.kind === "blocked")
+        .flatMap((risk) => risk.evidenceIds),
+    );
+    relevantEvents = relevantEvents.filter((event) => blockedIds.has(event.itemId));
+  }
+
+  return relevantEvents.slice(0, 4).map((event) => ({
+    id: event.id,
+    label: `${event.itemId} · ${event.kind === "reviewed" ? "review" : "comment"}`,
+    url: event.url!,
+  }));
 }

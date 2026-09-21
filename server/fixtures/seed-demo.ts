@@ -80,6 +80,31 @@ export function seedDemoLedger(ledger: SprintLedger): void {
   );
 
   storeItems(ledger, connectionId, currentSnapshot.items);
+  ledger.appendEvent(connectionId, {
+    externalId: "fixture-comment-142",
+    workItemExternalId: "fixture:#142",
+    kind: "commented",
+    occurredAt: "2026-09-18T10:05:00Z",
+    actor: "Maya",
+    url: "https://github.com/acme/checkout/issues/142#issuecomment-demo",
+    payload: {
+      body: "Payment retries still depend on the idempotency changes in #139.",
+      source: "fixture",
+    },
+  });
+  ledger.appendEvent(connectionId, {
+    externalId: "fixture-review-139",
+    workItemExternalId: "fixture:#139",
+    kind: "reviewed",
+    occurredAt: "2026-09-18T09:28:00Z",
+    actor: "Iris",
+    url: "https://github.com/acme/checkout/pull/139#pullrequestreview-demo",
+    payload: {
+      body: "Please cover the timeout path before merge.",
+      state: "changes_requested",
+      source: "fixture",
+    },
+  });
   storeRelationships(
     ledger,
     connectionId,
