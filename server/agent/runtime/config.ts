@@ -1,6 +1,13 @@
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { OpenAICompatibleRuntime, OpenAIResponsesRuntime } from "./openai.js";
+import {
+  AgentConfigStore,
+  parseAgentConfig,
+  publicAgentConfig,
+  type PublicAgentConfig,
+  type StoredAgentConfig,
+} from "./settings.js";
 import type {
   AgentRuntime,
   AgentRuntimeFactory,
@@ -9,6 +16,45 @@ import type {
 
 function env(name: string): string | null {
   return process.env[name]?.trim() || null;
+}
+
+function environmentAgentConfig(): StoredAgentConfig | null {
+  const legacyApiKey = env("OPENAI_API_KEY");
+  const explicitProvider = env("AGENT_PROVIDER");
+  const hasEnvironmentConfig = Boolean(
+    explicitProvider ||
+    env("AGENT_RUNTIME_MODULE") ||
+    env("AGENT_BASE_URL") ||
+    env("AGENT_API_KEY") ||
+    legacyApiKey,
+  );
+  if (!hasEnvironmentConfig) return null;
+  const provider = (
+    explicitProvider ??
+    (env("AGENT_RUNTIME_MODULE")
+      ? "custom"
+      : env("AGENT_BASE_URL")
+        ? "openai-compatible"
+        : legacyApiKey
+          ? "openai"
+          : "deterministic")
+  ).toLowerCase();
+  return parseAgentConfig({
+    provider,
+    model: env("AGENT_MODEL") ?? env("OPENAI_MODEL"),
+    apiKey: env("AGENT_API_KEY") ?? legacyApiKey,
+    baseUrl: env("AGENT_BASE_URL"),
+    runtimeModule: env("AGENT_RUNTIME_MODULE"),
+  });
+}
+
+export async function getPublicAgentConfig(
+  store = new AgentConfigStore(),
+): Promise<PublicAgentConfig> {
+  const environment = environmentAgentConfig();
+  if (environment) return publicAgentConfig(environment, "environment");
+  const local = await store.read();
+  return publicAgentConfig(local, local ? "local" : "default");
 }
 
 async function loadCustomRuntime(
@@ -38,23 +84,19 @@ async function loadCustomRuntime(
   return runtime;
 }
 
-export async function resolveAgentRuntime(): Promise<AgentRuntime | null> {
-  const legacyApiKey = env("OPENAI_API_KEY");
-  const provider = (
-    env("AGENT_PROVIDER") ??
-    (env("AGENT_RUNTIME_MODULE")
-      ? "custom"
-      : env("AGENT_BASE_URL")
-        ? "openai-compatible"
-        : legacyApiKey
-          ? "openai"
-          : "deterministic")
-  ).toLowerCase();
-  const apiKey = env("AGENT_API_KEY") ?? legacyApiKey;
-  const baseUrl = env("AGENT_BASE_URL");
-  const model = env("AGENT_MODEL") ?? env("OPENAI_MODEL");
+export async function resolveAgentRuntime(
+  store = new AgentConfigStore(),
+): Promise<AgentRuntime | null> {
+  const config = environmentAgentConfig() ?? await store.read() ?? {
+    provider: "deterministic",
+    model: null,
+    apiKey: null,
+    baseUrl: null,
+    runtimeModule: null,
+  } satisfies StoredAgentConfig;
+  const { provider, apiKey, baseUrl, model } = config;
 
-  if (provider === "deterministic" || provider === "none") return null;
+  if (provider === "deterministic") return null;
 
   if (provider === "openai") {
     if (!apiKey) throw new Error("AGENT_API_KEY is required for OpenAI");
@@ -79,7 +121,7 @@ export async function resolveAgentRuntime(): Promise<AgentRuntime | null> {
   }
 
   if (provider === "custom") {
-    const modulePath = env("AGENT_RUNTIME_MODULE");
+    const modulePath = config.runtimeModule;
     if (!modulePath) throw new Error("AGENT_RUNTIME_MODULE is required");
     return loadCustomRuntime(modulePath, {
       provider,

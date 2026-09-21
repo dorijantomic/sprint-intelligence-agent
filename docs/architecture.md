@@ -26,7 +26,7 @@ The application—not the supplied runtime—executes tools and keeps fact and e
 
 Presents the sprint overview, snapshot diff, dependency graph, evidence drawer, risk list, and conversational queries.
 
-During local development, the API reads immutable snapshots from SQLite and Vite proxies `/api` requests to it. The setup API uses the active `gh` login to discover projects and iterations, persists only non-secret connection metadata, and exposes a direct synchronization action. The dashboard retains a bundled fixture only as an explicit fallback when the API is unavailable.
+During local development, the API reads immutable snapshots from SQLite and Vite proxies `/api` requests to it. The setup API uses the active `gh` login to discover projects and iterations, persists only non-secret connection metadata, and exposes a direct synchronization action. A separate agent-settings API saves local runtime configuration in an ignored owner-readable file, redacts credentials from every response, applies changes without restart, and can verify typed tool calling before the runtime answers sprint questions. Environment configuration overrides this local file and is read-only in the UI. The dashboard retains a bundled fixture only as an explicit fallback when the API is unavailable.
 
 ### Evaluation harness
 
@@ -49,7 +49,7 @@ Replays fixed sprint histories and scores factual correctness, citation validity
 
 ## Trust boundary
 
-Provider content and supplied-agent output are untrusted input. Connectors validate payloads, agent tools expose typed queries instead of arbitrary database access, secrets stay server-side, and all future write operations require an explicit approval record. Agent runtimes can request read tools but receive no ledger handle and cannot forge evidence accepted by the server. A custom runtime module is locally trusted executable code and should only be configured from a path controlled by the operator.
+Provider content and supplied-agent output are untrusted input. Connectors validate payloads, agent tools expose typed queries instead of arbitrary database access, secrets stay server-side, and all future write operations require an explicit approval record. The browser may submit a credential but cannot read it back. Local credentials live in a mode-`0600`, Git-ignored file; hosted deployments must use a managed secret store. Agent runtimes can request read tools but receive no ledger handle and cannot forge evidence accepted by the server. A custom runtime module is locally trusted executable code and should only be configured from a path controlled by the operator.
 
 Local GitHub ingestion reuses the authenticated `gh` CLI credential. CI may inject a token through the environment, while a deployed multi-user version will use GitHub App installations rather than user CLI credentials.
 

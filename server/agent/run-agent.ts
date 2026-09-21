@@ -6,6 +6,7 @@ import type { EvidenceLink } from "../../src/domain/types.js";
 import { serializeSnapshot } from "../api/dashboard.js";
 import { SprintLedger } from "../ledger/ledger.js";
 import { resolveAgentRuntime } from "./runtime/config.js";
+import type { AgentConfigStore } from "./runtime/settings.js";
 import type {
   AgentConversationItem,
   AgentFunctionTool,
@@ -65,6 +66,7 @@ const submitAnswerTool: AgentFunctionTool = {
 export interface SprintAgentOptions {
   /** Supply any runtime implementing the provider-neutral tool-call contract. */
   runtime?: AgentRuntime | null;
+  configStore?: AgentConfigStore;
 }
 
 function parseSubmittedAnswer(value: string): SubmittedAnswer {
@@ -277,7 +279,7 @@ export async function runSprintAgent(
   try {
     runtime = options.runtime !== undefined
       ? options.runtime
-      : await resolveAgentRuntime();
+      : await resolveAgentRuntime(options.configStore);
   } catch {
     return recordRun(
       ledger,

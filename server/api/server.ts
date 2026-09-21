@@ -8,6 +8,11 @@ import { resolveGitHubToken } from "../config/github-sync.js";
 import { runSprintAgent } from "../agent/run-agent.js";
 import type { AgentAnswer } from "../agent/types.js";
 import {
+  getPublicAgentConfig,
+  resolveAgentRuntime,
+} from "../agent/runtime/config.js";
+import { AgentConfigStore, publicAgentConfig } from "../agent/runtime/settings.js";
+import {
   discoverGitHubProjects,
   GitHubApiError,
   type GitHubProjectOption,
@@ -38,6 +43,7 @@ export interface ApiServerOptions {
   discoverProjects?: ProjectDiscovery;
   syncConnection?: ConnectionSync;
   askAgent?: AskAgent;
+  agentConfigStore?: AgentConfigStore;
 }
 
 function sendJson(response: ServerResponse, statusCode: number, body: unknown): void {
@@ -108,7 +114,9 @@ export function createApiServer(
   const tokenResolver = options.resolveToken ?? (() => resolveGitHubToken(null));
   const projectDiscovery = options.discoverProjects ?? discoverGitHubProjects;
   const connectionSync = options.syncConnection ?? syncGitHubConnection;
-  const askAgent = options.askAgent ?? runSprintAgent;
+  const agentConfigStore = options.agentConfigStore ?? new AgentConfigStore();
+  const askAgent = options.askAgent ?? ((targetLedger, question) =>
+    runSprintAgent(targetLedger, question, { configStore: agentConfigStore }));
   const syncingConnections = new Set<number>();
 
   return createServer((request, response) => {
@@ -157,6 +165,89 @@ export function createApiServer(
         sendJson(response, 200, {
           connections: ledger.getConnectionConfigs("github"),
         });
+        return;
+      }
+
+      if (request.method === "GET" && url.pathname === "/api/agent/config") {
+        sendJson(response, 200, {
+          config: await getPublicAgentConfig(agentConfigStore),
+        });
+        return;
+      }
+
+      if (request.method === "PUT" && url.pathname === "/api/agent/config") {
+        try {
+          const effective = await getPublicAgentConfig(agentConfigStore);
+          if (!effective.editable) {
+            sendJson(response, 409, {
+              error: "Agent configuration is managed by environment variables",
+              kind: "environment_override",
+            });
+            return;
+          }
+          const saved = await agentConfigStore.save(await readJson(request));
+          sendJson(response, 200, {
+            config: publicAgentConfig(saved, "local"),
+          });
+        } catch (error) {
+          sendJson(response, 400, {
+            error: safeErrorMessage(error),
+            kind: "validation",
+          });
+        }
+        return;
+      }
+
+      if (
+        request.method === "POST" &&
+        url.pathname === "/api/agent/config/test"
+      ) {
+        try {
+          const runtime = await resolveAgentRuntime(agentConfigStore);
+          if (!runtime) {
+            sendJson(response, 200, {
+              status: "ok",
+              provider: "deterministic",
+              model: null,
+              durationMs: 0,
+            });
+            return;
+          }
+          const started = performance.now();
+          const result = await runtime.nextTurn({
+            instructions:
+              "This is a connection test. Call confirm_connection exactly once.",
+            conversation: [
+              { role: "user", content: "Confirm that tool calling works." },
+            ],
+            tools: [
+              {
+                name: "confirm_connection",
+                description: "Confirm the agent runtime can request a typed tool.",
+                parameters: {
+                  type: "object",
+                  properties: {},
+                  required: [],
+                  additionalProperties: false,
+                },
+              },
+            ],
+          });
+          if (result.toolCall.name !== "confirm_connection") {
+            throw new Error("The agent did not call the connection-test tool");
+          }
+          sendJson(response, 200, {
+            status: "ok",
+            provider: runtime.provider,
+            model: runtime.model,
+            durationMs: Number((performance.now() - started).toFixed(2)),
+          });
+        } catch (error) {
+          sendJson(response, 502, {
+            error: safeErrorMessage(error),
+            kind: "agent_connection",
+          });
+        }
         return;
       }
 

@@ -4,6 +4,14 @@ import {
   type AgentAnswer,
 } from "./api/agent";
 import {
+  loadAgentConfig,
+  saveAgentConfig,
+  testAgentConfig,
+  type AgentConfig,
+  type AgentConfigInput,
+  type AgentProvider,
+} from "./api/agentConfig";
+import {
   ApiError,
   discoverProjects,
   loadConnections,
@@ -208,6 +216,222 @@ function SetupDialog({
   );
 }
 
+interface AgentSettingsDialogProps {
+  config: AgentConfig | null;
+  loading: boolean;
+  loadError: string | null;
+  onClose: () => void;
+  onSaved: (config: AgentConfig) => void;
+}
+
+function AgentSettingsDialog({
+  config,
+  loading,
+  loadError,
+  onClose,
+  onSaved,
+}: AgentSettingsDialogProps) {
+  const [provider, setProvider] = useState<AgentProvider>(
+    config?.provider ?? "deterministic",
+  );
+  const [model, setModel] = useState(config?.model ?? "");
+  const [baseUrl, setBaseUrl] = useState(config?.baseUrl ?? "");
+  const [runtimeModule, setRuntimeModule] = useState(
+    config?.runtimeModule ?? "",
+  );
+  const [apiKey, setApiKey] = useState("");
+  const [clearApiKey, setClearApiKey] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<{
+    kind: "success" | "error";
+    text: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!config) return;
+    setProvider(config.provider);
+    setModel(config.model ?? "");
+    setBaseUrl(config.baseUrl ?? "");
+    setRuntimeModule(config.runtimeModule ?? "");
+  }, [config]);
+
+  function selectProvider(next: AgentProvider) {
+    setProvider(next);
+    setMessage(null);
+    if (next === "openai" && !model) setModel("gpt-5.6");
+    if (next === "openai-compatible" && !baseUrl) {
+      setBaseUrl("http://127.0.0.1:11434/v1");
+    }
+  }
+
+  async function saveAndTest() {
+    if (!config?.editable) return;
+    setSaving(true);
+    setMessage(null);
+    const input: AgentConfigInput = {
+      provider,
+      model: model || null,
+      baseUrl: baseUrl || null,
+      runtimeModule: runtimeModule || null,
+      clearApiKey,
+      ...(apiKey ? { apiKey } : {}),
+    };
+    try {
+      const saved = await saveAgentConfig(input);
+      onSaved(saved);
+      setApiKey("");
+      setClearApiKey(false);
+      const result = await testAgentConfig();
+      setMessage({
+        kind: "success",
+        text: result.provider === "deterministic"
+          ? "Saved. Orbit will use its deterministic evidence engine."
+          : `Connected to ${result.provider} · ${result.model ?? "custom agent"} in ${Math.round(result.durationMs)} ms.`,
+      });
+    } catch (error) {
+      setMessage({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Could not configure the agent.",
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const showConnectionFields = provider !== "deterministic";
+  const hasStoredKeyForSelection =
+    config?.hasApiKey === true && provider === config.provider;
+
+  return (
+    <div className="dialog-backdrop" role="presentation">
+      <section
+        aria-labelledby="agent-settings-title"
+        aria-modal="true"
+        className="setup-dialog"
+        role="dialog"
+      >
+        <div className="dialog-heading">
+          <div>
+            <span className="eyebrow">AGENT RUNTIME</span>
+            <h2 id="agent-settings-title">Choose your AI provider</h2>
+          </div>
+          <button aria-label="Close agent settings" className="dialog-close" onClick={onClose}>×</button>
+        </div>
+        <p className="dialog-copy">
+          Orbit owns tool execution and evidence validation. The selected agent only chooses read tools and proposes cited claims.
+        </p>
+
+        {loading ? (
+          <div className="discover-state"><strong>Loading agent settings…</strong></div>
+        ) : loadError ? (
+          <div className="setup-error" role="alert">{loadError}</div>
+        ) : config ? (
+          <form
+            className="setup-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void saveAndTest();
+            }}
+          >
+            <label>
+              Provider
+              <select
+                disabled={!config.editable}
+                onChange={(event) => selectProvider(event.target.value as AgentProvider)}
+                value={provider}
+              >
+                <option value="deterministic">Deterministic · no external AI</option>
+                <option value="openai">OpenAI Responses</option>
+                <option value="openai-compatible">OpenAI-compatible endpoint</option>
+                <option value="custom">Custom agent runtime module</option>
+              </select>
+            </label>
+
+            {showConnectionFields && (
+              <>
+                <label>
+                  Model or agent name
+                  <input
+                    disabled={!config.editable}
+                    onChange={(event) => setModel(event.target.value)}
+                    placeholder={provider === "custom" ? "Optional agent label" : "Tool-capable model name"}
+                    value={model}
+                  />
+                </label>
+                {provider === "openai-compatible" && (
+                  <label>
+                    Base URL
+                    <input
+                      disabled={!config.editable}
+                      onChange={(event) => setBaseUrl(event.target.value)}
+                      placeholder="http://127.0.0.1:11434/v1"
+                      value={baseUrl}
+                    />
+                  </label>
+                )}
+                {provider === "custom" && (
+                  <label>
+                    Runtime module path
+                    <input
+                      disabled={!config.editable}
+                      onChange={(event) => setRuntimeModule(event.target.value)}
+                      placeholder="./server/agent/runtime/my-agent.ts"
+                      value={runtimeModule}
+                    />
+                  </label>
+                )}
+                <label>
+                  API key {provider !== "openai" && <span className="optional-label">optional</span>}
+                  <input
+                    autoComplete="new-password"
+                    disabled={!config.editable || clearApiKey}
+                    onChange={(event) => setApiKey(event.target.value)}
+                    placeholder={hasStoredKeyForSelection ? "Saved key · leave blank to keep" : "Key stays on this machine"}
+                    type="password"
+                    value={apiKey}
+                  />
+                </label>
+              </>
+            )}
+
+            {hasStoredKeyForSelection && (
+              <label className="checkbox-label">
+                <input
+                  checked={clearApiKey}
+                  disabled={!config.editable}
+                  onChange={(event) => setClearApiKey(event.target.checked)}
+                  type="checkbox"
+                />
+                Remove the saved API key from this machine
+              </label>
+            )}
+
+            <div className="setup-note">
+              <span>{config.source === "environment" ? "Environment" : "Local only"}</span>
+              {config.source === "environment"
+                ? "These settings are controlled by environment variables and cannot be changed here."
+                : "Secrets are stored outside Git in .data/agent-config.json with owner-only file permissions."}
+            </div>
+            {message && (
+              <div className={message.kind === "success" ? "setup-success" : "setup-error"} role="status">
+                {message.text}
+              </div>
+            )}
+            <div className="dialog-actions">
+              <button className="secondary-action" onClick={onClose} type="button">Close</button>
+              {config.editable && (
+                <button className="primary-action" disabled={saving} type="submit">
+                  {saving ? "Saving and testing…" : "Save and test"}
+                </button>
+              )}
+            </div>
+          </form>
+        ) : null}
+      </section>
+    </div>
+  );
+}
+
 function App() {
   const [snapshots, setSnapshots] = useState({
     baseline: mondaySnapshot,
@@ -225,6 +449,10 @@ function App() {
   const [discoveryLoading, setDiscoveryLoading] = useState(false);
   const [setupSaving, setSetupSaving] = useState(false);
   const [setupError, setSetupError] = useState<string | null>(null);
+  const [agentSettingsOpen, setAgentSettingsOpen] = useState(false);
+  const [agentConfig, setAgentConfig] = useState<AgentConfig | null>(null);
+  const [agentConfigLoading, setAgentConfigLoading] = useState(false);
+  const [agentConfigError, setAgentConfigError] = useState<string | null>(null);
   const [syncState, setSyncState] = useState<{
     status: "idle" | "running" | "updated" | "unchanged" | "error";
     message: string | null;
@@ -259,6 +487,21 @@ function App() {
       });
     return () => controller.abort();
   }, []);
+
+  async function openAgentSettings() {
+    setAgentSettingsOpen(true);
+    setAgentConfigLoading(true);
+    setAgentConfigError(null);
+    try {
+      setAgentConfig(await loadAgentConfig());
+    } catch (error) {
+      setAgentConfigError(
+        error instanceof Error ? error.message : "Could not load agent settings.",
+      );
+    } finally {
+      setAgentConfigLoading(false);
+    }
+  }
 
   useEffect(() => {
     loadConnections()
@@ -452,6 +695,9 @@ function App() {
             </button>
             <button className="ghost-button" onClick={() => setSetupOpen(true)}>
               {connection ? "Configure" : "Connect GitHub"}
+            </button>
+            <button className="ghost-button" onClick={() => void openAgentSettings()}>
+              AI provider
             </button>
             <button
               className={`sync-button sync-${syncState.status}`}
@@ -679,6 +925,15 @@ function App() {
           onSave={saveConnection}
           projects={projects}
           saving={setupSaving}
+        />
+      )}
+      {agentSettingsOpen && (
+        <AgentSettingsDialog
+          config={agentConfig}
+          loadError={agentConfigError}
+          loading={agentConfigLoading}
+          onClose={() => setAgentSettingsOpen(false)}
+          onSaved={setAgentConfig}
         />
       )}
     </div>

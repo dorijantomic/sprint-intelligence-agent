@@ -1,6 +1,10 @@
+import { mkdtemp, rm } from "node:fs/promises";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { afterEach, describe, expect, it } from "vitest";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { AgentConfigStore } from "../agent/runtime/settings.js";
 import { seedDemoLedger } from "../fixtures/seed-demo.js";
 import { SprintLedger } from "../ledger/ledger.js";
 import { createApiServer } from "./server.js";
@@ -17,14 +21,35 @@ const githubConfig = {
 describe("dashboard API", () => {
   const servers: Server[] = [];
   const ledgers: SprintLedger[] = [];
+  const temporaryDirectories: string[] = [];
+
+  beforeEach(() => {
+    for (const name of [
+      "AGENT_PROVIDER",
+      "AGENT_MODEL",
+      "AGENT_API_KEY",
+      "AGENT_BASE_URL",
+      "AGENT_RUNTIME_MODULE",
+      "OPENAI_API_KEY",
+      "OPENAI_MODEL",
+    ]) {
+      vi.stubEnv(name, "");
+    }
+  });
 
   afterEach(async () => {
+    vi.unstubAllEnvs();
     await Promise.all(
       servers.splice(0).map(
         (server) => new Promise<void>((resolve) => server.close(() => resolve())),
       ),
     );
     ledgers.splice(0).forEach((ledger) => ledger.close());
+    await Promise.all(
+      temporaryDirectories.splice(0).map((directory) =>
+        rm(directory, { recursive: true, force: true }),
+      ),
+    );
   });
 
   it("serves persisted baseline and current sprint snapshots", async () => {
@@ -188,6 +213,68 @@ describe("dashboard API", () => {
 
     expect(response.status).toBe(401);
     expect(body.kind).toBe("authentication");
+  });
+
+  it("saves agent settings locally without returning the API key", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "orbit-api-agent-config-"));
+    temporaryDirectories.push(directory);
+    const configStore = new AgentConfigStore(join(directory, "config.json"));
+    const ledger = new SprintLedger();
+    ledgers.push(ledger);
+    const server = createApiServer(ledger, { agentConfigStore: configStore });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address() as AddressInfo;
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+
+    const saveResponse = await fetch(`${baseUrl}/api/agent/config`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        provider: "openai",
+        model: "test-model",
+        apiKey: "never-return-this",
+      }),
+    });
+    const saved = await saveResponse.json();
+    const getResponse = await fetch(`${baseUrl}/api/agent/config`);
+    const loaded = await getResponse.json();
+
+    expect(saveResponse.status).toBe(200);
+    expect(saved.config).toEqual(
+      expect.objectContaining({
+        provider: "openai",
+        model: "test-model",
+        hasApiKey: true,
+        editable: true,
+      }),
+    );
+    expect(loaded.config).toEqual(saved.config);
+    expect(JSON.stringify({ saved, loaded })).not.toContain("never-return-this");
+  });
+
+  it("tests deterministic agent configuration without an external service", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "orbit-api-agent-test-"));
+    temporaryDirectories.push(directory);
+    const configStore = new AgentConfigStore(join(directory, "config.json"));
+    await configStore.save({ provider: "deterministic" });
+    const ledger = new SprintLedger();
+    ledgers.push(ledger);
+    const server = createApiServer(ledger, { agentConfigStore: configStore });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address() as AddressInfo;
+
+    const response = await fetch(
+      `http://127.0.0.1:${address.port}/api/agent/config/test`,
+      { method: "POST" },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toEqual(
+      expect.objectContaining({ status: "ok", provider: "deterministic" }),
+    );
   });
 
   it("serves a structured evidence-backed agent answer", async () => {

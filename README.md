@@ -76,9 +76,11 @@ Start the application, choose **Connect GitHub**, discover your projects, select
 
 For scripts or CI, the existing command-line path remains available: copy `.env.example` to `.env`, provide the Project and iteration identifiers, then run `npm run sync:github`. `GITHUB_TOKEN` remains available as an optional CI override.
 
-AI narration is optional. Without an agent configuration, `/api/agent/ask` uses the deterministic analyzers and still returns structured claims, citations, and a tool trace.
+AI narration is optional. Without an agent configuration, `/api/agent/ask` uses the deterministic analyzers and still returns structured claims, citations, and a tool trace. Open **AI provider** in the dashboard to select a runtime, enter its model and credentials, then use **Save and test**. Changes apply immediately without restarting the application. The API key is never returned to the browser after submission.
 
-The built-in runtime choices use generic `AGENT_*` settings:
+Local UI settings are stored in the ignored `.data/agent-config.json` file with owner-only permissions. This is appropriate for the local application; a hosted deployment should replace it with its platform secret manager. Environment variables take precedence over the local file and make the UI settings read-only, which keeps CI and deployed configuration deterministic.
+
+The same runtime choices can be configured non-interactively with generic `AGENT_*` settings:
 
 ```env
 # No external model
