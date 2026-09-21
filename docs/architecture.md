@@ -4,7 +4,7 @@
 
 ### Connector and sync worker
 
-Imports source objects and append-only activity. Checkpoints make repeated syncs idempotent, while raw provider payloads remain available for audit and parser upgrades.
+Imports source objects and append-only activity. Checkpoints make repeated syncs idempotent, while raw provider payloads remain available for audit and parser upgrades. Each run records latency, provider request count, throughput, and failure details; unchanged state does not produce a duplicate sprint snapshot.
 
 The core contract is provider-neutral. GitHub is the first live connector and Jira is a later connector; both normalize iterations, work items, relationships, and events into the same ledger without erasing their raw source payloads.
 
@@ -36,6 +36,7 @@ Replays fixed sprint histories and scores factual correctness, citation validity
 - `work_item`
 - `work_item_relationship`
 - `activity_event`
+- `sync_run`
 - `sprint`
 - `sprint_membership`
 - `sprint_snapshot`

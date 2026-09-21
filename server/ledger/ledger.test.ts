@@ -97,12 +97,15 @@ describe("SprintLedger", () => {
       eventsAdded: 1,
       relationships: 1,
       cursor: "cursor-1",
+      durationMs: expect.any(Number),
+      requestCount: 0,
     });
     expect(ledger.count("source_connections")).toBe(1);
     expect(ledger.count("iterations")).toBe(1);
     expect(ledger.count("work_items")).toBe(2);
     expect(ledger.count("work_item_relationships")).toBe(1);
     expect(ledger.count("activity_events")).toBe(1);
+    expect(ledger.count("sync_runs")).toBe(1);
   });
 
   it("is idempotent when the same provider data is synchronized twice", async () => {
@@ -117,6 +120,7 @@ describe("SprintLedger", () => {
     expect(ledger.count("work_items")).toBe(2);
     expect(ledger.count("work_item_relationships")).toBe(1);
     expect(ledger.count("activity_events")).toBe(1);
+    expect(ledger.count("sync_runs")).toBe(2);
   });
 
   it("removes blocker relationships that are absent from a later observation", async () => {
@@ -165,6 +169,55 @@ describe("SprintLedger", () => {
       expect.objectContaining({ item_key: "#142", blocked_by: ["#139"] }),
     );
     expect(ledger.count("sprint_snapshots")).toBe(1);
+  });
+
+  it("does not create a duplicate snapshot when sprint state is unchanged", async () => {
+    ledger = new SprintLedger();
+    const connector = new FixtureConnector();
+    await synchronize(ledger, connector);
+    const connectionId = ledger.upsertConnection(
+      connector.provider,
+      connector.connectionExternalId,
+      connector.displayName,
+    );
+
+    const first = ledger.createSnapshotIfChanged(
+      connectionId,
+      "iteration-42",
+      "2026-09-18T16:30:00Z",
+    );
+    const second = ledger.createSnapshotIfChanged(
+      connectionId,
+      "iteration-42",
+      "2026-09-18T16:31:00Z",
+    );
+
+    expect(first.created).toBe(true);
+    expect(second.created).toBe(false);
+    expect(second.snapshot.id).toBe(first.snapshot.id);
+    expect(ledger.count("sprint_snapshots")).toBe(1);
+  });
+
+  it("records failed connector runs before rethrowing the error", async () => {
+    ledger = new SprintLedger();
+
+    class FailingConnector extends FixtureConnector {
+      override async *pull(): AsyncIterable<ConnectorBatch> {
+        throw new Error("fixture connection failed");
+      }
+    }
+
+    await expect(synchronize(ledger, new FailingConnector())).rejects.toThrow(
+      "fixture connection failed",
+    );
+    const run = ledger.database
+      .prepare("SELECT status, error_message FROM sync_runs LIMIT 1")
+      .get() as unknown as { status: string; error_message: string };
+
+    expect(run).toEqual({
+      status: "failed",
+      error_message: "fixture connection failed",
+    });
   });
 
   it("returns exact activity evidence between two snapshots", async () => {

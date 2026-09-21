@@ -1,9 +1,16 @@
-import type { ActivityEvent, SprintSnapshot } from "../domain/types";
+import type {
+  ActivityEvent,
+  QualityMetrics,
+  SprintSnapshot,
+  SyncMetrics,
+} from "../domain/types";
 
 interface DashboardResponse {
   baseline: SprintSnapshot;
   current: SprintSnapshot;
   events: ActivityEvent[];
+  syncMetrics: SyncMetrics | null;
+  qualityMetrics: QualityMetrics;
   source: "ledger";
 }
 

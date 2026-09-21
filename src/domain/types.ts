@@ -42,6 +42,30 @@ export interface EvidenceLink {
   url: string;
 }
 
+export interface SyncMetrics {
+  id: string;
+  startedAt: string;
+  completedAt: string;
+  durationMs: number;
+  status: "succeeded" | "failed";
+  requestCount: number;
+  batches: number;
+  items: number;
+  eventsAdded: number;
+  relationships: number;
+  errorMessage: string | null;
+}
+
+export interface QualityMetrics {
+  factualCorrectness: number;
+  citationCoverage: number;
+  unsupportedClaimRate: number;
+  scenarios: number;
+  assertions: number;
+  durationMs: number;
+  passed: boolean;
+}
+
 export type ChangeKind =
   | "added"
   | "removed"

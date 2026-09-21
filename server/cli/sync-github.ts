@@ -30,11 +30,12 @@ async function main(): Promise<void> {
       connector.connectionExternalId,
       connector.displayName,
     );
-    const snapshot = ledger.createSnapshot(
+    const snapshotResult = ledger.createSnapshotIfChanged(
       connectionId,
       config.iterationId,
       new Date().toISOString(),
     );
+    const snapshot = snapshotResult.snapshot;
 
     console.log(
       JSON.stringify(
@@ -43,7 +44,10 @@ async function main(): Promise<void> {
           databasePath,
           synchronizedItems: summary.items,
           newEvents: summary.eventsAdded,
+          durationMs: summary.durationMs,
+          apiRequests: summary.requestCount,
           snapshotId: snapshot.id,
+          snapshotCreated: snapshotResult.created,
           snapshotItems: snapshot.items.length,
         },
         null,

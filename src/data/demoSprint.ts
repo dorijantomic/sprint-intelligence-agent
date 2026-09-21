@@ -1,4 +1,9 @@
-import type { ActivityEvent, SprintSnapshot } from "../domain/types.js";
+import type {
+  ActivityEvent,
+  QualityMetrics,
+  SprintSnapshot,
+  SyncMetrics,
+} from "../domain/types.js";
 
 const repo = "https://github.com/acme/checkout";
 
@@ -162,3 +167,27 @@ export const demoActivityEvents: ActivityEvent[] = [
     },
   },
 ];
+
+export const demoSyncMetrics: SyncMetrics = {
+  id: "fixture-sync-run",
+  startedAt: "2026-09-18T16:29:59.950Z",
+  completedAt: "2026-09-18T16:30:00.000Z",
+  durationMs: 50,
+  status: "succeeded",
+  requestCount: 1,
+  batches: 1,
+  items: currentSnapshot.items.length,
+  eventsAdded: 2,
+  relationships: 1,
+  errorMessage: null,
+};
+
+export const demoQualityMetrics: QualityMetrics = {
+  factualCorrectness: 1,
+  citationCoverage: 1,
+  unsupportedClaimRate: 0,
+  scenarios: 3,
+  assertions: 39,
+  durationMs: 1.35,
+  passed: true,
+};

@@ -3,6 +3,8 @@ import { loadDashboard } from "./api/dashboard";
 import {
   currentSnapshot,
   demoActivityEvents,
+  demoQualityMetrics,
+  demoSyncMetrics,
   mondaySnapshot,
 } from "./data/demoSprint";
 import {
@@ -71,6 +73,8 @@ function App() {
     "loading",
   );
   const [events, setEvents] = useState(demoActivityEvents);
+  const [syncMetrics, setSyncMetrics] = useState(demoSyncMetrics);
+  const [qualityMetrics, setQualityMetrics] = useState(demoQualityMetrics);
   const baseline = snapshots.baseline;
   const current = snapshots.current;
   const analysis = useMemo(
@@ -86,6 +90,8 @@ function App() {
       .then((payload) => {
         setSnapshots({ baseline: payload.baseline, current: payload.current });
         setEvents(payload.events);
+        if (payload.syncMetrics) setSyncMetrics(payload.syncMetrics);
+        setQualityMetrics(payload.qualityMetrics);
         setDataSource("ledger");
       })
       .catch((error: unknown) => {
@@ -180,7 +186,12 @@ function App() {
               {" → "}
               {new Date(current.capturedAt).toLocaleDateString("en", { month: "short", day: "numeric" })}
             </button>
-            <button className="sync-button"><span>↻</span> {dataSource === "loading" ? "Loading" : "Synced"}</button>
+            <button className="sync-button">
+              <span>↻</span>{" "}
+              {dataSource === "loading"
+                ? "Loading"
+                : `Synced · ${Math.round(syncMetrics.durationMs)} ms`}
+            </button>
           </div>
         </header>
 
@@ -253,6 +264,30 @@ function App() {
                 <div><strong>{analysis.completedCount}</strong><span>completed</span></div>
                 <div><strong>{analysis.activeCount}</strong><span>active</span></div>
                 <div><strong>{analysis.addedCount}</strong><span>added</span></div>
+              </div>
+              <div className="quality-metrics" aria-label="Quality metrics">
+                <div>
+                  <strong>{Math.round(syncMetrics.durationMs)} ms</strong>
+                  <span>sync latency</span>
+                </div>
+                <div>
+                  <strong>{syncMetrics.requestCount}</strong>
+                  <span>API requests</span>
+                </div>
+                <div>
+                  <strong>{Math.round(qualityMetrics.factualCorrectness * 100)}%</strong>
+                  <span>fact accuracy</span>
+                </div>
+                <div>
+                  <strong>{Math.round(qualityMetrics.citationCoverage * 100)}%</strong>
+                  <span>citation coverage</span>
+                </div>
+              </div>
+              <div className="quality-foot">
+                <span className={qualityMetrics.passed ? "quality-pass" : "quality-fail"}>
+                  {qualityMetrics.passed ? "Quality gate passed" : "Quality gate failed"}
+                </span>
+                <span>{qualityMetrics.assertions} assertions</span>
               </div>
             </section>
           </div>

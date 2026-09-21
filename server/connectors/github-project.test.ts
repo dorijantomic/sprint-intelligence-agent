@@ -226,6 +226,7 @@ describe("GitHubProjectConnector", () => {
       ]),
     );
     expect(request).toHaveBeenCalledOnce();
+    expect(connector.requestCount).toBe(1);
   });
 
   it("does not expose the token in the connection identity", () => {

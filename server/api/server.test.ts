@@ -56,5 +56,22 @@ describe("dashboard API", () => {
         }),
       ]),
     );
+    expect(body.syncMetrics).toEqual(
+      expect.objectContaining({
+        status: "succeeded",
+        durationMs: 50,
+        requestCount: 1,
+        items: 6,
+        eventsAdded: 2,
+      }),
+    );
+    expect(body.qualityMetrics).toEqual(
+      expect.objectContaining({
+        factualCorrectness: 1,
+        citationCoverage: 1,
+        unsupportedClaimRate: 0,
+        passed: true,
+      }),
+    );
   });
 });

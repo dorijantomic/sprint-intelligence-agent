@@ -49,6 +49,20 @@ interface ActivityEventRow {
   payload_json: string;
 }
 
+interface SyncRunRow {
+  id: string;
+  started_at: string;
+  completed_at: string;
+  duration_ms: number;
+  status: "succeeded" | "failed";
+  request_count: number;
+  batch_count: number;
+  item_count: number;
+  events_added: number;
+  relationship_count: number;
+  error_message: string | null;
+}
+
 export interface StoredSnapshot {
   id: string;
   capturedAt: string;
@@ -66,6 +80,28 @@ export interface StoredActivityEvent {
   actor: string | null;
   url: string | null;
   payload: Record<string, unknown>;
+}
+
+export interface SyncRunInput {
+  startedAt: string;
+  completedAt: string;
+  durationMs: number;
+  status: "succeeded" | "failed";
+  requestCount: number;
+  batches: number;
+  items: number;
+  eventsAdded: number;
+  relationships: number;
+  errorMessage: string | null;
+}
+
+export interface StoredSyncRun extends SyncRunInput {
+  id: string;
+}
+
+export interface SnapshotCreationResult {
+  snapshot: StoredSnapshot;
+  created: boolean;
 }
 
 export class SprintLedger {
@@ -282,6 +318,33 @@ export class SprintLedger {
       .run(connectionId, cursor, new Date().toISOString());
   }
 
+  recordSyncRun(connectionId: number, run: SyncRunInput): StoredSyncRun {
+    const id = randomUUID();
+    this.database
+      .prepare(`
+        INSERT INTO sync_runs (
+          id, source_connection_id, started_at, completed_at, duration_ms,
+          status, request_count, batch_count, item_count, events_added,
+          relationship_count, error_message
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `)
+      .run(
+        id,
+        connectionId,
+        run.startedAt,
+        run.completedAt,
+        run.durationMs,
+        run.status,
+        run.requestCount,
+        run.batches,
+        run.items,
+        run.eventsAdded,
+        run.relationships,
+        run.errorMessage,
+      );
+    return { id, ...run };
+  }
+
   createSnapshot(
     connectionId: number,
     iterationExternalId: string,
@@ -338,6 +401,38 @@ export class SprintLedger {
     });
 
     return this.getSnapshot(snapshotId);
+  }
+
+  createSnapshotIfChanged(
+    connectionId: number,
+    iterationExternalId: string,
+    capturedAt = new Date().toISOString(),
+  ): SnapshotCreationResult {
+    const iterationId = this.findIterationId(connectionId, iterationExternalId);
+    const previousRow = this.database
+      .prepare(`
+        SELECT id
+        FROM sprint_snapshots
+        WHERE iteration_id = ?
+        ORDER BY captured_at DESC
+        LIMIT 1
+      `)
+      .get(iterationId) as unknown as { id: string } | undefined;
+    const previous = previousRow ? this.getSnapshot(previousRow.id) : null;
+    const snapshot = this.createSnapshot(
+      connectionId,
+      iterationExternalId,
+      capturedAt,
+    );
+
+    if (previous && JSON.stringify(previous.items) === JSON.stringify(snapshot.items)) {
+      this.database
+        .prepare("DELETE FROM sprint_snapshots WHERE id = ?")
+        .run(snapshot.id);
+      return { snapshot: previous, created: false };
+    }
+
+    return { snapshot, created: true };
   }
 
   getSnapshot(snapshotId: string): StoredSnapshot {
@@ -423,6 +518,37 @@ export class SprintLedger {
     }));
   }
 
+  getLatestSyncRunForSnapshot(snapshotId: string): StoredSyncRun | null {
+    const row = this.database
+      .prepare(`
+        SELECT r.id, r.started_at, r.completed_at, r.duration_ms, r.status,
+               r.request_count, r.batch_count, r.item_count, r.events_added,
+               r.relationship_count, r.error_message
+        FROM sprint_snapshots s
+        JOIN iterations i ON i.id = s.iteration_id
+        JOIN sync_runs r ON r.source_connection_id = i.source_connection_id
+        WHERE s.id = ?
+        ORDER BY r.completed_at DESC
+        LIMIT 1
+      `)
+      .get(snapshotId) as unknown as SyncRunRow | undefined;
+    if (!row) return null;
+
+    return {
+      id: row.id,
+      startedAt: row.started_at,
+      completedAt: row.completed_at,
+      durationMs: row.duration_ms,
+      status: row.status,
+      requestCount: row.request_count,
+      batches: row.batch_count,
+      items: row.item_count,
+      eventsAdded: row.events_added,
+      relationships: row.relationship_count,
+      errorMessage: row.error_message,
+    };
+  }
+
   count(
     table:
       | "source_connections"
@@ -430,6 +556,7 @@ export class SprintLedger {
       | "work_items"
       | "work_item_relationships"
       | "activity_events"
+      | "sync_runs"
       | "sprint_snapshots",
   ): number {
     const row = this.database

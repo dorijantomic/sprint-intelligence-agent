@@ -311,6 +311,7 @@ export class GitHubProjectConnector implements SourceConnector {
   readonly provider = "github";
   readonly connectionExternalId: string;
   readonly displayName: string;
+  requestCount = 0;
   private readonly request: typeof fetch;
 
   constructor(private readonly options: GitHubProjectConnectorOptions) {
@@ -418,6 +419,7 @@ export class GitHubProjectConnector implements SourceConnector {
   }
 
   private async fetchProject(after: string | null): Promise<ProjectData> {
+    this.requestCount += 1;
     const response = await this.request("https://api.github.com/graphql", {
       method: "POST",
       headers: {

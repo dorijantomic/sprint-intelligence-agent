@@ -1,6 +1,7 @@
 import { createServer, type Server, type ServerResponse } from "node:http";
 import { serializeSnapshot } from "./dashboard.js";
 import { SprintLedger } from "../ledger/ledger.js";
+import { runEvaluationSuite } from "../evals/evaluate.js";
 
 function sendJson(response: ServerResponse, statusCode: number, body: unknown): void {
   response.writeHead(statusCode, {
@@ -31,6 +32,7 @@ export function createApiServer(ledger: SprintLedger): Server {
         });
         return;
       }
+      const evaluation = runEvaluationSuite();
       sendJson(response, 200, {
         baseline: serializeSnapshot(snapshots[1]),
         current: serializeSnapshot(snapshots[0]),
@@ -38,6 +40,16 @@ export function createApiServer(ledger: SprintLedger): Server {
           snapshots[1].id,
           snapshots[0].id,
         ),
+        syncMetrics: ledger.getLatestSyncRunForSnapshot(snapshots[0].id),
+        qualityMetrics: {
+          factualCorrectness: evaluation.metrics.factualCorrectness,
+          citationCoverage: evaluation.metrics.citationCoverage,
+          unsupportedClaimRate: evaluation.metrics.unsupportedClaimRate,
+          scenarios: evaluation.metrics.scenarios,
+          assertions: evaluation.metrics.assertions,
+          durationMs: evaluation.durationMs,
+          passed: evaluation.passed,
+        },
         source: "ledger",
       });
       return;

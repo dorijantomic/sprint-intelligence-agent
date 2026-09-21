@@ -65,6 +65,18 @@ export function seedDemoLedger(ledger: SprintLedger): void {
     endsAt: "2026-09-25T17:00:00Z",
     raw: { fixture: true },
   });
+  ledger.recordSyncRun(connectionId, {
+    startedAt: "2026-09-18T16:29:59.950Z",
+    completedAt: "2026-09-18T16:30:00.000Z",
+    durationMs: 50,
+    status: "succeeded",
+    requestCount: 1,
+    batches: 1,
+    items: currentSnapshot.items.length,
+    eventsAdded: 2,
+    relationships: 1,
+    errorMessage: null,
+  });
 
   storeItems(ledger, connectionId, mondaySnapshot.items);
   storeRelationships(

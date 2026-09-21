@@ -73,6 +73,21 @@ export const schema = `
     synced_at TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS sync_runs (
+    id TEXT PRIMARY KEY,
+    source_connection_id INTEGER NOT NULL REFERENCES source_connections(id) ON DELETE CASCADE,
+    started_at TEXT NOT NULL,
+    completed_at TEXT NOT NULL,
+    duration_ms REAL NOT NULL,
+    status TEXT NOT NULL,
+    request_count INTEGER NOT NULL,
+    batch_count INTEGER NOT NULL,
+    item_count INTEGER NOT NULL,
+    events_added INTEGER NOT NULL,
+    relationship_count INTEGER NOT NULL,
+    error_message TEXT
+  );
+
   CREATE TABLE IF NOT EXISTS sprint_snapshots (
     id TEXT PRIMARY KEY,
     iteration_id INTEGER NOT NULL REFERENCES iterations(id) ON DELETE CASCADE,
@@ -93,6 +108,8 @@ export const schema = `
     ON activity_events(source_connection_id, occurred_at);
   CREATE INDEX IF NOT EXISTS idx_snapshots_iteration
     ON sprint_snapshots(iteration_id, captured_at);
+  CREATE INDEX IF NOT EXISTS idx_sync_runs_connection
+    ON sync_runs(source_connection_id, completed_at);
 
-  PRAGMA user_version = 1;
+  PRAGMA user_version = 2;
 `;

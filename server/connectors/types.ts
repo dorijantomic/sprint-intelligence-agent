@@ -64,5 +64,6 @@ export interface SourceConnector {
   readonly provider: ProviderKind;
   readonly connectionExternalId: string;
   readonly displayName: string;
+  readonly requestCount?: number;
   pull(cursor: string | null): AsyncIterable<ConnectorBatch>;
 }

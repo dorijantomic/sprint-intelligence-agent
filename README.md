@@ -51,7 +51,7 @@ See [docs/architecture.md](docs/architecture.md) for the system boundaries and d
 
 ## Repository status
 
-The repository includes an interactive React dashboard, deterministic before/after sprint analysis, evidence-linked risk signals, a source-neutral SQLite ledger, and a read-only GitHub Projects connector. The connector imports native blocker relationships plus timestamped comments and reviews, and reconciles dependencies when they are removed. The dashboard returns exact activity from the snapshot window, links answers back to GitHub evidence, and generates a deterministic holiday catch-up brief. GitHub-specific data is normalized at the connector boundary so future Jira support does not change the ledger or analysis engine.
+The repository includes an interactive React dashboard, deterministic before/after sprint analysis, evidence-linked risk signals, a source-neutral SQLite ledger, and a read-only GitHub Projects connector. The connector imports native blocker relationships plus timestamped comments and reviews, reconciles dependencies when they are removed, and records sync latency, API requests, throughput, and failures. Identical syncs do not create duplicate snapshots. The dashboard returns exact activity from the snapshot window, links answers back to GitHub evidence, generates a deterministic holiday catch-up brief, and displays live synchronization and evaluation quality metrics. GitHub-specific data is normalized at the connector boundary so future Jira support does not change the ledger or analysis engine.
 
 The public [demo sprint board](https://github.com/users/dorijantomic/projects/1) contains the live iteration, priorities, estimates, comments, scope change, and dependency chain used to exercise the connector end to end.
 
