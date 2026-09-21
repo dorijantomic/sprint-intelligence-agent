@@ -45,9 +45,21 @@ Choose **Connect source → GitHub Projects**, discover a project and iteration,
 
 ### Connect Jira Cloud
 
-Choose **Connect source → Jira Cloud** and enter the site URL, Atlassian email, API token, sprint ID, and optional story-point custom field. Jira integration is read-only and imports sprint metadata, work items, comments, status, ownership, priorities, estimates, and blocker links.
+Orbit uses Atlassian OAuth 2.0 (3LO) by default. Create an OAuth integration in the [Atlassian developer console](https://developer.atlassian.com/console/myapps/), add this callback URL, and copy the example environment file:
 
-Connector tokens live outside SQLite in ignored `.data/source-secrets.json` with owner-only permissions. A hosted deployment should replace this local store with a managed secret service.
+```text
+http://localhost:8787/api/auth/atlassian/callback
+```
+
+```bash
+cp .env.example .env
+```
+
+Add the Jira platform and Jira Software API permissions shown in `server/auth/atlassian-oauth.ts`, set `ATLASSIAN_CLIENT_ID` and `ATLASSIAN_CLIENT_SECRET` in `.env`, restart Orbit, then choose **Connect source → Jira Cloud → Connect with Atlassian**. The UI discovers accessible sites, Scrum boards, active/future sprints, and—when the signed-in user can view board configuration—the board's estimation field. All requested Jira scopes are read-only; `offline_access` allows refresh-token rotation so later syncs do not require another sign-in.
+
+If you cannot register an OAuth integration, choose **Use API token instead** and enter the site URL, account email, token, and sprint ID manually. Both authentication modes only perform Jira GET requests and import sprint metadata, work items, comments, status, ownership, priorities, estimates, and blocker links.
+
+OAuth grants and API tokens live outside SQLite in ignored `.data/source-secrets.json` with owner-only permissions. They are never returned to the browser. A hosted deployment should register one integration owned by the product and replace this local store with an encrypted managed secret service.
 
 ## Bring your own agent
 
@@ -106,7 +118,7 @@ The live report records model/tool selection, grounding, calls, latency, tokens,
 ## Known failure modes and boundaries
 
 - GitHub personal Projects do not currently have the same Projects v2 webhook coverage as organization projects, so the local product uses explicit reconciliation syncs.
-- Jira story-point fields are instance-specific; setup defaults to `customfield_10016` and lets the operator override it.
+- Jira story-point fields are instance-specific. OAuth setup discovers the field from the selected board; manual API-token setup defaults to `customfield_10016` and lets the operator override it.
 - The first snapshot cannot reconstruct history that was never ingested. Orbit marks requested windows as incomplete instead of implying full coverage.
 - Provider quotas, unsupported tool-calling models, or malformed model claims trigger an explicit deterministic fallback recorded in the audit trace.
 - Direct sync is intentionally optimized for a local/small-team product. A hosted installation should add signed webhooks, durable jobs, reconciliation polling, managed secrets, and tenant isolation.

@@ -5,15 +5,19 @@ import type {
   SourceConnector,
 } from "./types.js";
 
-export interface JiraSprintConnectorOptions {
+interface JiraSprintConnectorBaseOptions {
   baseUrl: string;
-  email: string;
-  apiToken: string;
+  apiBaseUrl?: string;
   sprintId: number;
   sprintName?: string;
   storyPointField?: string | null;
   fetch?: typeof fetch;
 }
+
+export type JiraSprintConnectorOptions = JiraSprintConnectorBaseOptions & (
+  | { email: string; apiToken: string; accessToken?: never }
+  | { accessToken: string; email?: never; apiToken?: never }
+);
 
 interface JiraSprint {
   id: number;
@@ -184,17 +188,21 @@ export class JiraSprintConnector implements SourceConnector {
   readonly displayName: string;
   requestCount = 0;
   private readonly baseUrl: string;
+  private readonly apiBaseUrl: string;
   private readonly request: typeof fetch;
   private readonly headers: HeadersInit;
 
   constructor(private readonly options: JiraSprintConnectorOptions) {
     this.baseUrl = options.baseUrl.replace(/\/$/, "");
+    this.apiBaseUrl = (options.apiBaseUrl ?? options.baseUrl).replace(/\/$/, "");
     this.connectionExternalId = `${this.baseUrl}/sprints/${options.sprintId}`;
     this.displayName = `Jira · ${options.sprintName ?? `Sprint ${options.sprintId}`}`;
     this.request = options.fetch ?? fetch;
     this.headers = {
       accept: "application/json",
-      authorization: `Basic ${Buffer.from(`${options.email}:${options.apiToken}`).toString("base64")}`,
+      authorization: "accessToken" in options
+        ? `Bearer ${options.accessToken}`
+        : `Basic ${Buffer.from(`${options.email}:${options.apiToken}`).toString("base64")}`,
     };
   }
 
@@ -323,7 +331,7 @@ export class JiraSprintConnector implements SourceConnector {
 
   private async get<T>(path: string): Promise<T> {
     this.requestCount += 1;
-    const response = await this.request(`${this.baseUrl}${path}`, {
+    const response = await this.request(`${this.apiBaseUrl}${path}`, {
       headers: this.headers,
     });
     if (!response.ok) {

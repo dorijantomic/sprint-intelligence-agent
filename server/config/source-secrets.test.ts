@@ -22,5 +22,8 @@ describe("SourceSecretStore", () => {
 
     expect(await store.get("jira:https://example.atlassian.net/sprints/42")).toBe("token");
     expect((await stat(store.path)).mode & 0o777).toBe(0o600);
+
+    await store.delete("jira:https://example.atlassian.net/sprints/42");
+    expect(await store.get("jira:https://example.atlassian.net/sprints/42")).toBeNull();
   });
 });

@@ -16,11 +16,20 @@ import {
 import {
   ApiError,
   discoverProjects,
+  loadAtlassianBoards,
+  loadAtlassianOAuthStatus,
+  loadAtlassianSites,
+  loadAtlassianSprints,
   loadConnections,
   saveGitHubConnection,
   saveJiraConnection,
+  saveJiraOAuthConnection,
   syncConnection,
   type Connection,
+  type AtlassianBoard,
+  type AtlassianOAuthStatus,
+  type AtlassianSite,
+  type AtlassianSprint,
   type JiraConnectionConfig,
   type GitHubProjectOption,
 } from "./api/connections";
@@ -115,6 +124,7 @@ function RiskCard({ risk }: { risk: SprintRisk }) {
 }
 
 interface SetupDialogProps {
+  initialSource: "github" | "jira";
   projects: GitHubProjectOption[] | null;
   loading: boolean;
   saving: boolean;
@@ -123,9 +133,174 @@ interface SetupDialogProps {
   onDiscover: () => void;
   onSave: (project: GitHubProjectOption, iterationId: string) => void;
   onSaveJira: (config: JiraConnectionConfig & { apiToken: string }) => void;
+  onSaveJiraOAuth: (config: JiraConnectionConfig & { authMode: "oauth"; cloudId: string }) => void;
+}
+
+interface JiraSetupProps {
+  saving: boolean;
+  onSaveToken: SetupDialogProps["onSaveJira"];
+  onSaveOAuth: SetupDialogProps["onSaveJiraOAuth"];
+}
+
+function JiraSetup({ saving, onSaveToken, onSaveOAuth }: JiraSetupProps) {
+  const [mode, setMode] = useState<"oauth" | "token">("oauth");
+  const [status, setStatus] = useState<AtlassianOAuthStatus | null>(null);
+  const [sites, setSites] = useState<AtlassianSite[]>([]);
+  const [boards, setBoards] = useState<AtlassianBoard[]>([]);
+  const [sprints, setSprints] = useState<AtlassianSprint[]>([]);
+  const [siteId, setSiteId] = useState("");
+  const [boardId, setBoardId] = useState("");
+  const [sprintId, setSprintId] = useState("");
+  const [storyPointField, setStoryPointField] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [discoveryError, setDiscoveryError] = useState<string | null>(null);
+  const [jiraBaseUrl, setJiraBaseUrl] = useState("");
+  const [jiraEmail, setJiraEmail] = useState("");
+  const [jiraToken, setJiraToken] = useState("");
+  const [jiraSprintId, setJiraSprintId] = useState("");
+  const [jiraSprintName, setJiraSprintName] = useState("");
+  const [jiraStoryPoints, setJiraStoryPoints] = useState("customfield_10016");
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    loadAtlassianOAuthStatus()
+      .then(async (nextStatus) => {
+        if (!active) return;
+        setStatus(nextStatus);
+        if (nextStatus.connected) {
+          const nextSites = await loadAtlassianSites();
+          if (!active) return;
+          setSites(nextSites);
+          setSiteId(nextSites[0]?.id ?? "");
+        }
+      })
+      .catch((error) => active && setDiscoveryError(error instanceof Error ? error.message : "Could not load Atlassian setup."))
+      .finally(() => active && setLoading(false));
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!siteId) return;
+    let active = true;
+    setLoading(true);
+    setDiscoveryError(null);
+    setBoards([]);
+    setBoardId("");
+    setSprints([]);
+    setSprintId("");
+    loadAtlassianBoards(siteId)
+      .then((nextBoards) => {
+        if (!active) return;
+        setBoards(nextBoards);
+        setBoardId(String(nextBoards[0]?.id ?? ""));
+      })
+      .catch((error) => active && setDiscoveryError(error instanceof Error ? error.message : "Could not discover Jira boards."))
+      .finally(() => active && setLoading(false));
+    return () => { active = false; };
+  }, [siteId]);
+
+  useEffect(() => {
+    if (!siteId || !boardId) return;
+    let active = true;
+    setLoading(true);
+    setDiscoveryError(null);
+    setSprints([]);
+    setSprintId("");
+    loadAtlassianSprints(siteId, Number(boardId))
+      .then((result) => {
+        if (!active) return;
+        setSprints(result.sprints);
+        setSprintId(String(result.sprints.find((sprint) => sprint.state === "active")?.id ?? result.sprints[0]?.id ?? ""));
+        setStoryPointField(result.storyPointField);
+      })
+      .catch((error) => active && setDiscoveryError(error instanceof Error ? error.message : "Could not discover Jira sprints."))
+      .finally(() => active && setLoading(false));
+    return () => { active = false; };
+  }, [boardId, siteId]);
+
+  if (mode === "token") {
+    return (
+      <form className="setup-form" onSubmit={(event) => {
+        event.preventDefault();
+        onSaveToken({
+          authMode: "api_token",
+          baseUrl: jiraBaseUrl,
+          email: jiraEmail,
+          apiToken: jiraToken,
+          sprintId: Number(jiraSprintId),
+          sprintName: jiraSprintName,
+          storyPointField: jiraStoryPoints || null,
+        });
+      }}>
+        <button className="text-button" onClick={() => setMode("oauth")} type="button">← Use Atlassian sign-in</button>
+        <label>Jira site URL<input onChange={(event) => setJiraBaseUrl(event.target.value)} placeholder="https://team.atlassian.net" required type="url" value={jiraBaseUrl} /></label>
+        <label>Atlassian account email<input onChange={(event) => setJiraEmail(event.target.value)} placeholder="you@example.com" required type="email" value={jiraEmail} /></label>
+        <label>Jira API token<input autoComplete="new-password" onChange={(event) => setJiraToken(event.target.value)} placeholder="Stored only on this machine" required type="password" value={jiraToken} /></label>
+        <label>Sprint ID<input min="1" onChange={(event) => setJiraSprintId(event.target.value)} placeholder="42" required type="number" value={jiraSprintId} /></label>
+        <label>Sprint name<input onChange={(event) => setJiraSprintName(event.target.value)} placeholder="Platform Sprint 9" required value={jiraSprintName} /></label>
+        <label>Story-point field <span className="optional-label">optional</span><input onChange={(event) => setJiraStoryPoints(event.target.value)} placeholder="customfield_10016" value={jiraStoryPoints} /></label>
+        <div className="setup-note"><span>Advanced fallback</span>The token is stored outside Git and SQLite in an owner-readable local file.</div>
+        <div className="dialog-actions"><button className="primary-action" disabled={saving} type="submit">{saving ? "Saving…" : "Use this sprint"}</button></div>
+      </form>
+    );
+  }
+
+  if (loading && !status) return <div className="discover-state"><strong>Checking Atlassian connection…</strong></div>;
+  if (!status?.configured) {
+    return (
+      <div className="discover-state">
+        <strong>Atlassian OAuth needs app credentials</strong>
+        <small>Set {status?.missing.join(" and ") || "the Atlassian client variables"} in .env, then restart Orbit.</small>
+        <button className="secondary-action" onClick={() => setMode("token")} type="button">Use API token instead</button>
+      </div>
+    );
+  }
+  if (!status.connected) {
+    return (
+      <div className="discover-state">
+        <span className="github-mark">A</span>
+        <strong>Connect your Atlassian account</strong>
+        <small>Orbit requests read-only Jira access and refresh access so future syncs keep working.</small>
+        <a className="primary-action" href="/api/auth/atlassian/start">Connect with Atlassian</a>
+        <button className="text-button" onClick={() => setMode("token")} type="button">Use API token instead</button>
+      </div>
+    );
+  }
+
+  const site = sites.find((item) => item.id === siteId);
+  const sprint = sprints.find((item) => String(item.id) === sprintId);
+  return (
+    <form className="setup-form" onSubmit={(event) => {
+      event.preventDefault();
+      if (!site || !sprint) return;
+      onSaveOAuth({
+        authMode: "oauth",
+        cloudId: site.id,
+        baseUrl: site.url,
+        sprintId: sprint.id,
+        sprintName: sprint.name,
+        storyPointField,
+      });
+    }}>
+      <label>Jira site<select onChange={(event) => setSiteId(event.target.value)} value={siteId}>{sites.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.url}</option>)}</select></label>
+      <label>Scrum board<select disabled={!boards.length} onChange={(event) => setBoardId(event.target.value)} value={boardId}>{boards.map((board) => <option key={board.id} value={board.id}>{board.projectKey ? `${board.projectKey} · ` : ""}{board.name}</option>)}</select></label>
+      <label>Active or future sprint<select disabled={!sprints.length} onChange={(event) => setSprintId(event.target.value)} value={sprintId}>{sprints.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.state}</option>)}</select></label>
+      <div className="setup-note"><span>Read-only OAuth</span>{storyPointField ? `Story points discovered as ${storyPointField}. ` : "No estimation field was reported. "}Credentials stay outside Git and SQLite.</div>
+      {discoveryError && <div className="setup-error" role="alert">{discoveryError}</div>}
+      {!loading && boards.length === 0 && <div className="setup-error">No Jira boards are accessible to this account.</div>}
+      {!loading && boards.length > 0 && sprints.length === 0 && <div className="setup-error">This board has no active or future sprint.</div>}
+      <div className="dialog-actions">
+        <a className="text-button" href="/api/auth/atlassian/start">Reconnect account</a>
+        <button className="text-button" onClick={() => setMode("token")} type="button">Use API token instead</button>
+        <button className="primary-action" disabled={!sprint || loading || saving} type="submit">{saving ? "Saving…" : "Use this sprint"}</button>
+      </div>
+    </form>
+  );
 }
 
 function SetupDialog({
+  initialSource,
   projects,
   loading,
   saving,
@@ -134,14 +309,9 @@ function SetupDialog({
   onDiscover,
   onSave,
   onSaveJira,
+  onSaveJiraOAuth,
 }: SetupDialogProps) {
-  const [source, setSource] = useState<"github" | "jira">("github");
-  const [jiraBaseUrl, setJiraBaseUrl] = useState("");
-  const [jiraEmail, setJiraEmail] = useState("");
-  const [jiraToken, setJiraToken] = useState("");
-  const [jiraSprintId, setJiraSprintId] = useState("");
-  const [jiraSprintName, setJiraSprintName] = useState("");
-  const [jiraStoryPoints, setJiraStoryPoints] = useState("customfield_10016");
+  const [source, setSource] = useState<"github" | "jira">(initialSource);
   const usableProjects = projects?.filter((project) => project.iterations.length > 0);
   const firstProject = usableProjects?.[0];
   const [projectId, setProjectId] = useState(firstProject?.id ?? "");
@@ -184,7 +354,7 @@ function SetupDialog({
           <button aria-label="Close setup" className="dialog-close" onClick={onClose}>×</button>
         </div>
         <p className="dialog-copy">
-          Connect GitHub Projects through your CLI login or a Jira Cloud sprint with an API token. Both integrations are read-only.
+          Connect GitHub Projects through your CLI login or sign in to Jira Cloud with Atlassian. Both integrations are read-only.
         </p>
 
         <div className="source-tabs" role="group" aria-label="Sprint source">
@@ -193,52 +363,7 @@ function SetupDialog({
         </div>
 
         {source === "jira" ? (
-          <form
-            className="setup-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              onSaveJira({
-                baseUrl: jiraBaseUrl,
-                email: jiraEmail,
-                apiToken: jiraToken,
-                sprintId: Number(jiraSprintId),
-                sprintName: jiraSprintName,
-                storyPointField: jiraStoryPoints || null,
-              });
-            }}
-          >
-            <label>
-              Jira site URL
-              <input onChange={(event) => setJiraBaseUrl(event.target.value)} placeholder="https://team.atlassian.net" required type="url" value={jiraBaseUrl} />
-            </label>
-            <label>
-              Atlassian account email
-              <input onChange={(event) => setJiraEmail(event.target.value)} placeholder="you@example.com" required type="email" value={jiraEmail} />
-            </label>
-            <label>
-              Jira API token
-              <input autoComplete="new-password" onChange={(event) => setJiraToken(event.target.value)} placeholder="Stored only on this machine" required type="password" value={jiraToken} />
-            </label>
-            <label>
-              Sprint ID
-              <input min="1" onChange={(event) => setJiraSprintId(event.target.value)} placeholder="42" required type="number" value={jiraSprintId} />
-            </label>
-            <label>
-              Sprint name
-              <input onChange={(event) => setJiraSprintName(event.target.value)} placeholder="Platform Sprint 9" required value={jiraSprintName} />
-            </label>
-            <label>
-              Story-point field <span className="optional-label">optional</span>
-              <input onChange={(event) => setJiraStoryPoints(event.target.value)} placeholder="customfield_10016" value={jiraStoryPoints} />
-            </label>
-            <div className="setup-note">
-              <span>Local secret</span>
-              The token is stored outside Git and SQLite in an owner-readable file. Orbit only performs Jira GET requests.
-            </div>
-            <div className="dialog-actions">
-              <button className="primary-action" disabled={saving} type="submit">{saving ? "Saving…" : "Use this sprint"}</button>
-            </div>
-          </form>
+          <JiraSetup onSaveOAuth={onSaveJiraOAuth} onSaveToken={onSaveJira} saving={saving} />
         ) : projects === null ? (
           <div className="discover-state">
             <span className="github-mark">GH</span>
@@ -557,6 +682,7 @@ function App() {
   const [customWindowDate, setCustomWindowDate] = useState("");
   const [connection, setConnection] = useState<Connection | null>(null);
   const [setupOpen, setSetupOpen] = useState(false);
+  const [setupSource, setSetupSource] = useState<"github" | "jira">("github");
   const [projects, setProjects] = useState<GitHubProjectOption[] | null>(null);
   const [discoveryLoading, setDiscoveryLoading] = useState(false);
   const [setupSaving, setSetupSaving] = useState(false);
@@ -624,10 +750,20 @@ function App() {
   }
 
   useEffect(() => {
+    const parameters = new URLSearchParams(window.location.search);
+    const atlassianResult = parameters.get("atlassian");
+    if (atlassianResult) {
+      setSetupSource("jira");
+      setSetupOpen(true);
+      if (atlassianResult === "error") {
+        setSetupError(parameters.get("message") ?? "Atlassian authorization failed.");
+      }
+      window.history.replaceState({}, "", window.location.pathname + window.location.hash);
+    }
     loadConnections()
       .then((connections) => {
         setConnection(connections[0] ?? null);
-        if (connections.length === 0) setSetupOpen(true);
+        if (connections.length === 0 && !atlassianResult) setSetupOpen(true);
       })
       .catch(() => {
         // The fixture dashboard remains usable when the local API is offline.
@@ -781,6 +917,21 @@ function App() {
     }
   }
 
+  async function saveJiraOAuth(config: JiraConnectionConfig & { authMode: "oauth"; cloudId: string }) {
+    setSetupSaving(true);
+    setSetupError(null);
+    try {
+      const saved = await saveJiraOAuthConnection(config);
+      setConnection(saved);
+      setSetupOpen(false);
+      setSyncState({ status: "idle", message: "Jira sprint saved. Sync when ready." });
+    } catch (error) {
+      setSetupError(error instanceof Error ? error.message : "Could not save the Jira connection.");
+    } finally {
+      setSetupSaving(false);
+    }
+  }
+
   async function runSync() {
     if (!connection) {
       setSetupOpen(true);
@@ -807,7 +958,9 @@ function App() {
       const authHelp = error instanceof ApiError && error.kind === "authentication"
         ? connection.provider === "github"
           ? " Refresh GitHub CLI access with `gh auth refresh -s read:project`."
-          : " Check the Jira email and API token in Configure."
+          : connection.config.authMode === "oauth"
+            ? " Reconnect Atlassian in Configure."
+            : " Check the Jira email and API token in Configure."
         : "";
       setSyncState({
         status: "error",
@@ -884,7 +1037,10 @@ function App() {
                 value={customWindowDate}
               />
             )}
-            <button className="ghost-button" onClick={() => setSetupOpen(true)}>
+            <button className="ghost-button" onClick={() => {
+              setSetupSource(connection?.provider === "jira" ? "jira" : "github");
+              setSetupOpen(true);
+            }}>
               {connection ? "Configure" : "Connect source"}
             </button>
             <button className="ghost-button" onClick={() => void openAgentSettings()}>
@@ -1183,10 +1339,12 @@ function App() {
       {setupOpen && (
         <SetupDialog
           error={setupError}
+          initialSource={setupSource}
           loading={discoveryLoading}
           onClose={() => setSetupOpen(false)}
           onDiscover={discover}
           onSaveJira={saveJira}
+          onSaveJiraOAuth={saveJiraOAuth}
           onSave={saveConnection}
           projects={projects}
           saving={setupSaving}

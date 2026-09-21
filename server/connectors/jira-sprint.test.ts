@@ -9,6 +9,32 @@ function json(value: unknown): Response {
 }
 
 describe("JiraSprintConnector", () => {
+  it("uses a bearer token and the OAuth API base without changing evidence URLs", async () => {
+    const request = vi.fn<typeof fetch>(async (input, init) => {
+      expect(String(input)).toMatch(/^https:\/\/api\.atlassian\.com\/ex\/jira\/cloud-1\//);
+      expect((init?.headers as Record<string, string>).authorization).toBe("Bearer oauth-token");
+      if (String(input).endsWith("/rest/agile/1.0/sprint/42")) {
+        return json({ id: 42, name: "Sprint 42" });
+      }
+      if (String(input).includes("/sprint/42/issue?")) {
+        return json({ issues: [], startAt: 0, maxResults: 50, total: 0 });
+      }
+      throw new Error(`Unexpected request: ${input}`);
+    });
+    const connector = new JiraSprintConnector({
+      baseUrl: "https://team.atlassian.net",
+      apiBaseUrl: "https://api.atlassian.com/ex/jira/cloud-1",
+      accessToken: "oauth-token",
+      sprintId: 42,
+      fetch: request,
+    });
+
+    for await (const _batch of connector.pull(null)) {
+      // Pulling is the assertion: every request above validates its target and auth.
+    }
+    expect(connector.connectionExternalId).toBe("https://team.atlassian.net/sprints/42");
+  });
+
   it("normalizes sprint work, comments, and blocker links", async () => {
     const request = vi.fn<typeof fetch>(async (input, init) => {
       const url = String(input);

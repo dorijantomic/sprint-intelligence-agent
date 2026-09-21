@@ -6,6 +6,11 @@ import {
 } from "node:http";
 import { resolveGitHubToken } from "../config/github-sync.js";
 import { SourceSecretStore } from "../config/source-secrets.js";
+import {
+  AtlassianOAuth,
+  AtlassianOAuthError,
+  type AtlassianOAuthProvider,
+} from "../auth/atlassian-oauth.js";
 import { runSprintAgent } from "../agent/run-agent.js";
 import type { AgentAnswer } from "../agent/types.js";
 import {
@@ -29,6 +34,7 @@ import {
 import {
   syncJiraConnection,
   type JiraConnectionConfig,
+  type JiraCredential,
   type JiraConnectionSyncResult,
 } from "../sync/jira-connection.js";
 import { serializeSnapshot } from "./dashboard.js";
@@ -43,7 +49,7 @@ type ConnectionSync = (
 type JiraConnectionSync = (
   ledger: SprintLedger,
   config: JiraConnectionConfig,
-  apiToken: string,
+  credential: JiraCredential,
 ) => Promise<JiraConnectionSyncResult>;
 type AskAgent = (
   ledger: SprintLedger,
@@ -59,6 +65,7 @@ export interface ApiServerOptions {
   askAgent?: AskAgent;
   agentConfigStore?: AgentConfigStore;
   sourceSecretStore?: SourceSecretStore;
+  atlassianOAuth?: AtlassianOAuthProvider;
 }
 
 function sendJson(response: ServerResponse, statusCode: number, body: unknown): void {
@@ -67,6 +74,11 @@ function sendJson(response: ServerResponse, statusCode: number, body: unknown): 
     "cache-control": "no-store",
   });
   response.end(JSON.stringify(body));
+}
+
+function sendRedirect(response: ServerResponse, location: string): void {
+  response.writeHead(302, { location, "cache-control": "no-store" });
+  response.end();
 }
 
 async function readJson(request: IncomingMessage): Promise<unknown> {
@@ -115,6 +127,7 @@ function parseJiraConnectionConfig(body: unknown): {
   return {
     config: {
       baseUrl,
+      authMode: "api_token",
       email: requiredString(input.email, "email"),
       sprintId,
       sprintName: requiredString(input.sprintName, "sprintName"),
@@ -122,6 +135,29 @@ function parseJiraConnectionConfig(body: unknown): {
     },
     apiToken: typeof input.apiToken === "string" && input.apiToken.trim()
       ? input.apiToken.trim()
+      : null,
+  };
+}
+
+function parseJiraOAuthConnectionConfig(body: unknown): JiraConnectionConfig {
+  if (!body || typeof body !== "object") {
+    throw new Error("A Jira connection is required");
+  }
+  const input = body as Record<string, unknown>;
+  const sprintId = Number(input.sprintId);
+  if (!Number.isSafeInteger(sprintId) || sprintId <= 0) {
+    throw new Error("sprintId must be a positive integer");
+  }
+  const parsedUrl = new URL(requiredString(input.baseUrl, "baseUrl"));
+  if (parsedUrl.protocol !== "https:") throw new Error("baseUrl must use HTTPS");
+  return {
+    authMode: "oauth",
+    cloudId: requiredString(input.cloudId, "cloudId"),
+    baseUrl: parsedUrl.toString().replace(/\/$/, ""),
+    sprintId,
+    sprintName: requiredString(input.sprintName, "sprintName"),
+    storyPointField: typeof input.storyPointField === "string"
+      ? input.storyPointField.trim() || null
       : null,
   };
 }
@@ -179,6 +215,9 @@ export function createApiServer(
   const jiraConnectionSync = options.syncJiraConnection ?? syncJiraConnection;
   const agentConfigStore = options.agentConfigStore ?? new AgentConfigStore();
   const sourceSecretStore = options.sourceSecretStore ?? new SourceSecretStore();
+  const atlassianOAuth = options.atlassianOAuth ?? new AtlassianOAuth({
+    secrets: sourceSecretStore,
+  });
   const askAgent = options.askAgent ?? ((targetLedger, question, since) =>
     runSprintAgent(targetLedger, question, {
       configStore: agentConfigStore,
@@ -192,6 +231,82 @@ export function createApiServer(
 
       if (request.method === "GET" && url.pathname === "/api/health") {
         sendJson(response, 200, { status: "ok" });
+        return;
+      }
+
+      if (request.method === "GET" && url.pathname === "/api/auth/atlassian/status") {
+        sendJson(response, 200, await atlassianOAuth.status());
+        return;
+      }
+
+      if (request.method === "GET" && url.pathname === "/api/auth/atlassian/start") {
+        try {
+          sendRedirect(response, await atlassianOAuth.authorizationUrl());
+        } catch (error) {
+          const status = error instanceof AtlassianOAuthError ? error.status : 500;
+          sendJson(response, status, { error: safeErrorMessage(error), kind: "atlassian_oauth" });
+        }
+        return;
+      }
+
+      if (request.method === "GET" && url.pathname === "/api/auth/atlassian/callback") {
+        const appUrl = atlassianOAuth.appUrl ?? "http://localhost:5173";
+        try {
+          const oauthError = url.searchParams.get("error");
+          if (oauthError) throw new Error(`Atlassian authorization was denied: ${oauthError}`);
+          await atlassianOAuth.complete(
+            requiredString(url.searchParams.get("code"), "code"),
+            requiredString(url.searchParams.get("state"), "state"),
+          );
+          sendRedirect(response, `${appUrl}/?atlassian=connected`);
+        } catch (error) {
+          sendRedirect(
+            response,
+            `${appUrl}/?atlassian=error&message=${encodeURIComponent(safeErrorMessage(error))}`,
+          );
+        }
+        return;
+      }
+
+      if (request.method === "GET" && url.pathname === "/api/atlassian/sites") {
+        try {
+          sendJson(response, 200, { sites: await atlassianOAuth.listSites() });
+        } catch (error) {
+          const authentication = isAuthenticationError(error) ||
+            (error instanceof AtlassianOAuthError && [401, 403].includes(error.status));
+          sendJson(response, authentication ? 401 : 502, {
+            error: safeErrorMessage(error),
+            kind: authentication ? "authentication" : "provider",
+          });
+        }
+        return;
+      }
+
+      if (request.method === "GET" && url.pathname === "/api/atlassian/boards") {
+        try {
+          const cloudId = requiredString(url.searchParams.get("cloudId"), "cloudId");
+          sendJson(response, 200, { boards: await atlassianOAuth.listBoards(cloudId) });
+        } catch (error) {
+          sendJson(response, error instanceof AtlassianOAuthError ? error.status : 400, {
+            error: safeErrorMessage(error),
+            kind: error instanceof AtlassianOAuthError ? "provider" : "validation",
+          });
+        }
+        return;
+      }
+
+      const sprintDiscoveryMatch = url.pathname.match(/^\/api\/atlassian\/boards\/(\d+)\/sprints$/);
+      if (request.method === "GET" && sprintDiscoveryMatch) {
+        try {
+          const cloudId = requiredString(url.searchParams.get("cloudId"), "cloudId");
+          const boardId = Number(sprintDiscoveryMatch[1]);
+          sendJson(response, 200, await atlassianOAuth.listSprints(cloudId, boardId));
+        } catch (error) {
+          sendJson(response, error instanceof AtlassianOAuthError ? error.status : 400, {
+            error: safeErrorMessage(error),
+            kind: error instanceof AtlassianOAuthError ? "provider" : "validation",
+          });
+        }
         return;
       }
 
@@ -400,6 +515,28 @@ export function createApiServer(
         return;
       }
 
+      if (
+        request.method === "POST" &&
+        url.pathname === "/api/connections/jira/oauth"
+      ) {
+        try {
+          const status = await atlassianOAuth.status();
+          if (!status.connected) throw new Error("Connect Atlassian before saving a sprint");
+          const config = parseJiraOAuthConnectionConfig(await readJson(request));
+          const externalId = `${config.baseUrl}/sprints/${config.sprintId}`;
+          const connection = ledger.saveConnectionConfig(
+            "jira",
+            externalId,
+            `Jira · ${config.sprintName}`,
+            config,
+          );
+          sendJson(response, 201, { connection });
+        } catch (error) {
+          sendJson(response, 400, { error: safeErrorMessage(error), kind: "validation" });
+        }
+        return;
+      }
+
       if (request.method === "POST" && url.pathname === "/api/agent/ask") {
         try {
           const body = await readJson(request);
@@ -453,15 +590,21 @@ export function createApiServer(
               )
             : connection.provider === "jira"
               ? await (async () => {
-                  const apiToken = await sourceSecretStore.get(
-                    jiraSecretKey(connection.externalId),
-                  );
+                  const config = connection.config as JiraConnectionConfig;
+                  if (config.authMode === "oauth") {
+                    if (!config.cloudId) throw new Error("Jira cloud ID is not configured");
+                    return jiraConnectionSync(ledger, config, {
+                      type: "oauth",
+                      accessToken: await atlassianOAuth.getAccessToken(),
+                      cloudId: config.cloudId,
+                    });
+                  }
+                  const apiToken = await sourceSecretStore.get(jiraSecretKey(connection.externalId));
                   if (!apiToken) throw new Error("Jira API token is not configured");
-                  return jiraConnectionSync(
-                    ledger,
-                    connection.config as JiraConnectionConfig,
+                  return jiraConnectionSync(ledger, config, {
+                    type: "api_token",
                     apiToken,
-                  );
+                  });
                 })()
               : null;
           if (!result) {

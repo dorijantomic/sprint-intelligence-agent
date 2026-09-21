@@ -42,4 +42,17 @@ export class SourceSecretStore {
     });
     await rename(temporaryPath, this.path);
   }
+
+  async delete(key: string): Promise<void> {
+    const secrets = await this.readAll();
+    if (!(key in secrets)) return;
+    delete secrets[key];
+    await mkdir(dirname(this.path), { recursive: true });
+    const temporaryPath = `${this.path}.${process.pid}.tmp`;
+    await writeFile(temporaryPath, `${JSON.stringify(secrets, null, 2)}\n`, {
+      encoding: "utf8",
+      mode: 0o600,
+    });
+    await rename(temporaryPath, this.path);
+  }
 }

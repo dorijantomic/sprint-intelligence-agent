@@ -26,9 +26,43 @@ export interface GitHubConnectionConfig {
 
 export interface JiraConnectionConfig {
   baseUrl: string;
-  email: string;
+  authMode?: "api_token" | "oauth";
+  email?: string;
+  cloudId?: string;
   sprintId: number;
   sprintName: string;
+  storyPointField: string | null;
+}
+
+export interface AtlassianOAuthStatus {
+  configured: boolean;
+  connected: boolean;
+  missing: string[];
+}
+
+export interface AtlassianSite {
+  id: string;
+  name: string;
+  url: string;
+}
+
+export interface AtlassianBoard {
+  id: number;
+  name: string;
+  type: string;
+  projectKey: string | null;
+}
+
+export interface AtlassianSprint {
+  id: number;
+  name: string;
+  state: string;
+  startDate: string | null;
+  endDate: string | null;
+}
+
+export interface AtlassianSprintDiscovery {
+  sprints: AtlassianSprint[];
   storyPointField: string | null;
 }
 
@@ -123,6 +157,42 @@ export async function saveJiraConnection(
   });
   const body = await readResponse<{ connection: JiraConnection }>(response);
   return body.connection;
+}
+
+export async function loadAtlassianOAuthStatus(): Promise<AtlassianOAuthStatus> {
+  const response = await fetch("/api/auth/atlassian/status");
+  return readResponse<AtlassianOAuthStatus>(response);
+}
+
+export async function loadAtlassianSites(): Promise<AtlassianSite[]> {
+  const response = await fetch("/api/atlassian/sites");
+  return (await readResponse<{ sites: AtlassianSite[] }>(response)).sites;
+}
+
+export async function loadAtlassianBoards(cloudId: string): Promise<AtlassianBoard[]> {
+  const response = await fetch(`/api/atlassian/boards?cloudId=${encodeURIComponent(cloudId)}`);
+  return (await readResponse<{ boards: AtlassianBoard[] }>(response)).boards;
+}
+
+export async function loadAtlassianSprints(
+  cloudId: string,
+  boardId: number,
+): Promise<AtlassianSprintDiscovery> {
+  const response = await fetch(
+    `/api/atlassian/boards/${boardId}/sprints?cloudId=${encodeURIComponent(cloudId)}`,
+  );
+  return readResponse<AtlassianSprintDiscovery>(response);
+}
+
+export async function saveJiraOAuthConnection(
+  config: JiraConnectionConfig & { authMode: "oauth"; cloudId: string },
+): Promise<JiraConnection> {
+  const response = await fetch("/api/connections/jira/oauth", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(config),
+  });
+  return (await readResponse<{ connection: JiraConnection }>(response)).connection;
 }
 
 export async function syncConnection(connectionId: number): Promise<SyncResult> {

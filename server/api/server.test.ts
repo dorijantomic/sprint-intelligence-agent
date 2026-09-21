@@ -146,7 +146,7 @@ describe("dashboard API", () => {
     const secretStore = new SourceSecretStore(join(directory, "sources.json"));
     const ledger = new SprintLedger();
     ledgers.push(ledger);
-    const syncJira = vi.fn(async (_ledger, _config, apiToken: string) => ({
+    const syncJira = vi.fn(async (_ledger, _config, _credential) => ({
       summary: {
         batches: 1,
         items: 2,
@@ -193,9 +193,69 @@ describe("dashboard API", () => {
     expect(syncJira).toHaveBeenCalledWith(
       ledger,
       expect.objectContaining({ sprintId: 42 }),
-      "jira-secret-token",
+      { type: "api_token", apiToken: "jira-secret-token" },
     );
     expect(JSON.stringify({ saved, listed })).not.toContain("jira-secret-token");
+  });
+
+  it("discovers and synchronizes an OAuth-connected Jira sprint without exposing tokens", async () => {
+    const ledger = new SprintLedger();
+    ledgers.push(ledger);
+    const atlassianOAuth = {
+      status: vi.fn(async () => ({ configured: true, connected: true, missing: [] })),
+      authorizationUrl: vi.fn(async () => "https://auth.atlassian.com/authorize"),
+      complete: vi.fn(async () => undefined),
+      getAccessToken: vi.fn(async () => "oauth-access-token"),
+      listSites: vi.fn(async () => [{ id: "cloud-1", name: "Acme", url: "https://acme.atlassian.net" }]),
+      listBoards: vi.fn(async () => [{ id: 34, name: "Delivery", type: "scrum", projectKey: "DEL" }]),
+      listSprints: vi.fn(async () => ({
+        sprints: [{ id: 7, name: "Sprint 7", state: "active", startDate: null, endDate: null }],
+        storyPointField: "customfield_10016",
+      })),
+    };
+    const syncJira = vi.fn(async () => ({
+      summary: { batches: 1, items: 1, eventsAdded: 0, relationships: 0, cursor: null, durationMs: 5, requestCount: 3 },
+      snapshotId: "oauth-snapshot",
+      snapshotCreated: true,
+      snapshotItems: 1,
+    }));
+    const server = createApiServer(ledger, {
+      atlassianOAuth,
+      syncJiraConnection: syncJira,
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address() as AddressInfo;
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+
+    const sites = await (await fetch(`${baseUrl}/api/atlassian/sites`)).json();
+    const boards = await (await fetch(`${baseUrl}/api/atlassian/boards?cloudId=cloud-1`)).json();
+    const discovery = await (await fetch(`${baseUrl}/api/atlassian/boards/34/sprints?cloudId=cloud-1`)).json();
+    const saveResponse = await fetch(`${baseUrl}/api/connections/jira/oauth`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        authMode: "oauth",
+        cloudId: "cloud-1",
+        baseUrl: "https://acme.atlassian.net",
+        sprintId: 7,
+        sprintName: "Sprint 7",
+        storyPointField: discovery.storyPointField,
+      }),
+    });
+    const saved = await saveResponse.json();
+    const syncResponse = await fetch(`${baseUrl}/api/connections/${saved.connection.id}/sync`, { method: "POST" });
+
+    expect(sites.sites[0].id).toBe("cloud-1");
+    expect(boards.boards[0].id).toBe(34);
+    expect(saveResponse.status).toBe(201);
+    expect(syncResponse.status).toBe(200);
+    expect(syncJira).toHaveBeenCalledWith(
+      ledger,
+      expect.objectContaining({ authMode: "oauth", cloudId: "cloud-1", sprintId: 7 }),
+      { type: "oauth", cloudId: "cloud-1", accessToken: "oauth-access-token" },
+    );
+    expect(JSON.stringify({ sites, boards, discovery, saved })).not.toContain("oauth-access-token");
   });
 
   it("rejects concurrent syncs for the same connection", async () => {
