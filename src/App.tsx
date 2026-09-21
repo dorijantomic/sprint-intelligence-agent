@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   askSprintAgent,
+  loadAgentRuns,
   type AgentAnswer,
+  type AgentRunSummary,
 } from "./api/agent";
 import {
   loadAgentConfig,
@@ -16,8 +18,10 @@ import {
   discoverProjects,
   loadConnections,
   saveGitHubConnection,
+  saveJiraConnection,
   syncConnection,
   type Connection,
+  type JiraConnectionConfig,
   type GitHubProjectOption,
 } from "./api/connections";
 import { loadDashboard } from "./api/dashboard";
@@ -34,7 +38,11 @@ import {
   answerSprintQuestion,
   evidenceForSprintQuestion,
 } from "./domain/analyzeSprint";
-import type { SprintRisk, WorkStatus } from "./domain/types";
+import type {
+  ComparisonWindow,
+  SprintRisk,
+  WorkStatus,
+} from "./domain/types";
 
 const statusLabel: Record<WorkStatus, string> = {
   todo: "To do",
@@ -49,6 +57,27 @@ const suggestedQuestions = [
   "Show me the sprint risks",
   "Give me a holiday catch-up brief",
 ];
+
+type WindowPreset = "latest" | "monday" | "seven_days" | "custom";
+
+function localDayStart(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function sinceForWindow(preset: WindowPreset, customDate: string): string | null {
+  const now = new Date();
+  if (preset === "latest") return null;
+  if (preset === "seven_days") {
+    return new Date(now.getTime() - 7 * 24 * 60 * 60 * 1_000).toISOString();
+  }
+  if (preset === "monday") {
+    const monday = localDayStart(now);
+    monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
+    return monday.toISOString();
+  }
+  if (!customDate) return null;
+  return new Date(`${customDate}T00:00:00`).toISOString();
+}
 
 function Logo() {
   return (
@@ -93,6 +122,7 @@ interface SetupDialogProps {
   onClose: () => void;
   onDiscover: () => void;
   onSave: (project: GitHubProjectOption, iterationId: string) => void;
+  onSaveJira: (config: JiraConnectionConfig & { apiToken: string }) => void;
 }
 
 function SetupDialog({
@@ -103,7 +133,15 @@ function SetupDialog({
   onClose,
   onDiscover,
   onSave,
+  onSaveJira,
 }: SetupDialogProps) {
+  const [source, setSource] = useState<"github" | "jira">("github");
+  const [jiraBaseUrl, setJiraBaseUrl] = useState("");
+  const [jiraEmail, setJiraEmail] = useState("");
+  const [jiraToken, setJiraToken] = useState("");
+  const [jiraSprintId, setJiraSprintId] = useState("");
+  const [jiraSprintName, setJiraSprintName] = useState("");
+  const [jiraStoryPoints, setJiraStoryPoints] = useState("customfield_10016");
   const usableProjects = projects?.filter((project) => project.iterations.length > 0);
   const firstProject = usableProjects?.[0];
   const [projectId, setProjectId] = useState(firstProject?.id ?? "");
@@ -140,16 +178,68 @@ function SetupDialog({
       >
         <div className="dialog-heading">
           <div>
-            <span className="eyebrow">GITHUB CONNECTION</span>
+            <span className="eyebrow">SPRINT CONNECTION</span>
             <h2 id="setup-title">Choose a sprint source</h2>
           </div>
           <button aria-label="Close setup" className="dialog-close" onClick={onClose}>×</button>
         </div>
         <p className="dialog-copy">
-          Orbit reads projects available to your local GitHub CLI login. Your token stays on this machine and is never saved in SQLite.
+          Connect GitHub Projects through your CLI login or a Jira Cloud sprint with an API token. Both integrations are read-only.
         </p>
 
-        {projects === null ? (
+        <div className="source-tabs" role="group" aria-label="Sprint source">
+          <button className={source === "github" ? "active" : ""} onClick={() => setSource("github")} type="button">GitHub Projects</button>
+          <button className={source === "jira" ? "active" : ""} onClick={() => setSource("jira")} type="button">Jira Cloud</button>
+        </div>
+
+        {source === "jira" ? (
+          <form
+            className="setup-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              onSaveJira({
+                baseUrl: jiraBaseUrl,
+                email: jiraEmail,
+                apiToken: jiraToken,
+                sprintId: Number(jiraSprintId),
+                sprintName: jiraSprintName,
+                storyPointField: jiraStoryPoints || null,
+              });
+            }}
+          >
+            <label>
+              Jira site URL
+              <input onChange={(event) => setJiraBaseUrl(event.target.value)} placeholder="https://team.atlassian.net" required type="url" value={jiraBaseUrl} />
+            </label>
+            <label>
+              Atlassian account email
+              <input onChange={(event) => setJiraEmail(event.target.value)} placeholder="you@example.com" required type="email" value={jiraEmail} />
+            </label>
+            <label>
+              Jira API token
+              <input autoComplete="new-password" onChange={(event) => setJiraToken(event.target.value)} placeholder="Stored only on this machine" required type="password" value={jiraToken} />
+            </label>
+            <label>
+              Sprint ID
+              <input min="1" onChange={(event) => setJiraSprintId(event.target.value)} placeholder="42" required type="number" value={jiraSprintId} />
+            </label>
+            <label>
+              Sprint name
+              <input onChange={(event) => setJiraSprintName(event.target.value)} placeholder="Platform Sprint 9" required value={jiraSprintName} />
+            </label>
+            <label>
+              Story-point field <span className="optional-label">optional</span>
+              <input onChange={(event) => setJiraStoryPoints(event.target.value)} placeholder="customfield_10016" value={jiraStoryPoints} />
+            </label>
+            <div className="setup-note">
+              <span>Local secret</span>
+              The token is stored outside Git and SQLite in an owner-readable file. Orbit only performs Jira GET requests.
+            </div>
+            <div className="dialog-actions">
+              <button className="primary-action" disabled={saving} type="submit">{saving ? "Saving…" : "Use this sprint"}</button>
+            </div>
+          </form>
+        ) : projects === null ? (
           <div className="discover-state">
             <span className="github-mark">GH</span>
             <strong>{loading ? "Finding your projects…" : "Ready to discover GitHub Projects"}</strong>
@@ -261,6 +351,7 @@ function AgentSettingsDialog({
     setApiKey("");
     setClearApiKey(false);
     if (next === "openai") setModel("gpt-5.6");
+    if (next === "opencode-go") setModel("gpt-5.6-luna");
     if (next === "gemini") setModel("gemini-3.8-flash");
     if (next === "openai-compatible") {
       setModel("");
@@ -347,6 +438,7 @@ function AgentSettingsDialog({
               >
                 <option value="deterministic">Deterministic · no external AI</option>
                 <option value="openai">OpenAI Responses</option>
+                <option value="opencode-go">OpenCode Go</option>
                 <option value="gemini">Google Gemini · AI Studio key</option>
                 <option value="openai-compatible">OpenAI-compatible endpoint</option>
                 <option value="custom">Custom agent runtime module</option>
@@ -387,7 +479,11 @@ function AgentSettingsDialog({
                   </label>
                 )}
                 <label>
-                  {provider === "gemini" ? "Google AI Studio key" : "API key"} {!["openai", "gemini"].includes(provider) && <span className="optional-label">optional</span>}
+                  {provider === "gemini"
+                    ? "Google AI Studio key"
+                    : provider === "opencode-go"
+                      ? "OpenCode Go API key"
+                      : "API key"} {!["openai", "opencode-go", "gemini"].includes(provider) && <span className="optional-label">optional</span>}
                   <input
                     autoComplete="new-password"
                     disabled={!config.editable || clearApiKey}
@@ -449,6 +545,16 @@ function App() {
   const [events, setEvents] = useState(demoActivityEvents);
   const [syncMetrics, setSyncMetrics] = useState(demoSyncMetrics);
   const [qualityMetrics, setQualityMetrics] = useState(demoQualityMetrics);
+  const [comparisonWindow, setComparisonWindow] = useState<ComparisonWindow>({
+    requestedSince: null,
+    effectiveSince: mondaySnapshot.capturedAt,
+    baselineCapturedAt: mondaySnapshot.capturedAt,
+    currentCapturedAt: currentSnapshot.capturedAt,
+    coverageComplete: true,
+    strategy: "latest",
+  });
+  const [windowPreset, setWindowPreset] = useState<WindowPreset>("latest");
+  const [customWindowDate, setCustomWindowDate] = useState("");
   const [connection, setConnection] = useState<Connection | null>(null);
   const [setupOpen, setSetupOpen] = useState(false);
   const [projects, setProjects] = useState<GitHubProjectOption[] | null>(null);
@@ -464,6 +570,7 @@ function App() {
     message: string | null;
   }>({ status: "idle", message: null });
   const [agentResult, setAgentResult] = useState<AgentAnswer | null>(null);
+  const [agentRuns, setAgentRuns] = useState<AgentRunSummary[]>([]);
   const [agentState, setAgentState] = useState<{
     status: "idle" | "loading" | "error";
     message: string | null;
@@ -483,6 +590,7 @@ function App() {
       .then((payload) => {
         setSnapshots({ baseline: payload.baseline, current: payload.current });
         setEvents(payload.events);
+        setComparisonWindow(payload.window);
         if (payload.syncMetrics) setSyncMetrics(payload.syncMetrics);
         setQualityMetrics(payload.qualityMetrics);
         setDataSource("ledger");
@@ -492,6 +600,12 @@ function App() {
         setDataSource("fixture");
       });
     return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
+    loadAgentRuns().then(setAgentRuns).catch(() => {
+      // Run history is optional when the local API is unavailable.
+    });
   }, []);
 
   async function openAgentSettings() {
@@ -554,9 +668,13 @@ function App() {
       : agentResult?.answer ?? deterministicAnswer;
   const displayedEvidence = agentResult?.evidence ?? deterministicEvidence;
 
-  const progress = Math.round(
-    (analysis.completedPoints / analysis.totalPoints) * 100,
-  );
+  const progress = analysis.totalPoints === 0
+    ? 0
+    : Math.round((analysis.completedPoints / analysis.totalPoints) * 100);
+  const baselineCompletedPoints = baseline.items
+    .filter((item) => item.status === "done")
+    .reduce((sum, item) => sum + item.estimate, 0);
+  const completedPointDelta = analysis.completedPoints - baselineCompletedPoints;
 
   async function ask(value = question) {
     const trimmed = value.trim();
@@ -566,7 +684,14 @@ function App() {
     setAgentResult(null);
     setAgentState({ status: "loading", message: null });
     try {
-      setAgentResult(await askSprintAgent(trimmed));
+      const selectedSince = sinceForWindow(windowPreset, customWindowDate);
+      const questionSince =
+        !selectedSince && /since monday|from monday/i.test(trimmed)
+          ? sinceForWindow("monday", "")
+          : selectedSince;
+      const result = await askSprintAgent(trimmed, questionSince);
+      setAgentResult(result);
+      loadAgentRuns().then(setAgentRuns).catch(() => undefined);
       setAgentState({ status: "idle", message: null });
     } catch (error) {
       setAgentState({
@@ -576,13 +701,30 @@ function App() {
     }
   }
 
-  async function refreshDashboard() {
-    const payload = await loadDashboard();
+  async function refreshDashboard(since = sinceForWindow(windowPreset, customWindowDate)) {
+    const payload = await loadDashboard(undefined, since);
     setSnapshots({ baseline: payload.baseline, current: payload.current });
     setEvents(payload.events);
+    setComparisonWindow(payload.window);
     if (payload.syncMetrics) setSyncMetrics(payload.syncMetrics);
     setQualityMetrics(payload.qualityMetrics);
     setDataSource("ledger");
+  }
+
+  async function changeWindow(next: WindowPreset, customDate = customWindowDate) {
+    setWindowPreset(next);
+    if (next === "custom" && !customDate) return;
+    setSyncState({ status: "running", message: "Loading the requested history window…" });
+    try {
+      await refreshDashboard(sinceForWindow(next, customDate));
+      setAgentResult(null);
+      setSyncState({ status: "idle", message: null });
+    } catch (error) {
+      setSyncState({
+        status: "error",
+        message: error instanceof Error ? error.message : "Could not load that history window.",
+      });
+    }
   }
 
   async function discover() {
@@ -624,6 +766,21 @@ function App() {
     }
   }
 
+  async function saveJira(config: JiraConnectionConfig & { apiToken: string }) {
+    setSetupSaving(true);
+    setSetupError(null);
+    try {
+      const saved = await saveJiraConnection(config);
+      setConnection(saved);
+      setSetupOpen(false);
+      setSyncState({ status: "idle", message: "Jira sprint saved. Sync when ready." });
+    } catch (error) {
+      setSetupError(error instanceof Error ? error.message : "Could not save the Jira connection.");
+    } finally {
+      setSetupSaving(false);
+    }
+  }
+
   async function runSync() {
     if (!connection) {
       setSetupOpen(true);
@@ -631,7 +788,12 @@ function App() {
     }
     if (syncState.status === "running") return;
 
-    setSyncState({ status: "running", message: "Reading the selected GitHub iteration…" });
+    setSyncState({
+      status: "running",
+      message: connection.provider === "github"
+        ? "Reading the selected GitHub iteration…"
+        : "Reading the selected Jira sprint…",
+    });
     try {
       const result = await syncConnection(connection.id);
       await refreshDashboard();
@@ -643,7 +805,9 @@ function App() {
       });
     } catch (error) {
       const authHelp = error instanceof ApiError && error.kind === "authentication"
-        ? " Refresh GitHub CLI access with `gh auth refresh -s read:project`."
+        ? connection.provider === "github"
+          ? " Refresh GitHub CLI access with `gh auth refresh -s read:project`."
+          : " Check the Jira email and API token in Configure."
         : "";
       setSyncState({
         status: "error",
@@ -676,7 +840,9 @@ function App() {
             <strong>{connection?.displayName ?? (dataSource === "ledger" ? "SQLite ledger" : "Demo ledger")}</strong>
             <small>
               {connection
-                ? connection.config.iterationTitle
+                ? connection.provider === "github"
+                  ? connection.config.iterationTitle
+                  : connection.config.sprintName
                 : dataSource === "loading"
                 ? "Loading snapshots…"
                 : dataSource === "ledger"
@@ -694,13 +860,32 @@ function App() {
             <h1>{current.sprintName}</h1>
           </div>
           <div className="topbar-actions">
-            <button className="ghost-button">
-              {new Date(baseline.capturedAt).toLocaleDateString("en", { month: "short", day: "numeric" })}
-              {" → "}
-              {new Date(current.capturedAt).toLocaleDateString("en", { month: "short", day: "numeric" })}
-            </button>
+            <select
+              aria-label="Comparison window"
+              className="window-select"
+              onChange={(event) => void changeWindow(event.target.value as WindowPreset)}
+              value={windowPreset}
+            >
+              <option value="latest">Since last snapshot</option>
+              <option value="monday">Since Monday</option>
+              <option value="seven_days">Last 7 days</option>
+              <option value="custom">Custom date</option>
+            </select>
+            {windowPreset === "custom" && (
+              <input
+                aria-label="Custom comparison date"
+                className="window-date"
+                max={new Date().toISOString().slice(0, 10)}
+                onChange={(event) => {
+                  setCustomWindowDate(event.target.value);
+                  if (event.target.value) void changeWindow("custom", event.target.value);
+                }}
+                type="date"
+                value={customWindowDate}
+              />
+            )}
             <button className="ghost-button" onClick={() => setSetupOpen(true)}>
-              {connection ? "Configure" : "Connect GitHub"}
+              {connection ? "Configure" : "Connect source"}
             </button>
             <button className="ghost-button" onClick={() => void openAgentSettings()}>
               AI provider
@@ -725,6 +910,12 @@ function App() {
             <div className={`sync-notice notice-${syncState.status}`} role="status">
               <span />
               {syncState.message}
+            </div>
+          )}
+          {!comparisonWindow.coverageComplete && (
+            <div className="sync-notice notice-warning" role="status">
+              <span />
+              History begins {new Date(comparisonWindow.baselineCapturedAt).toLocaleString()}; results before that snapshot may be incomplete.
             </div>
           )}
           <div className="hero-grid">
@@ -802,12 +993,72 @@ function App() {
                   {agentState.status === "loading" ? "…" : "→"}
                 </button>
               </form>
+              {agentResult && (
+                <details className="agent-audit">
+                  <summary>Inspect evidence and tool trace</summary>
+                  <div className="audit-window">
+                    <strong>Comparison window</strong>
+                    <span>
+                      {new Date(agentResult.window.effectiveSince).toLocaleString()} → {new Date(agentResult.window.currentCapturedAt).toLocaleString()}
+                    </span>
+                    <small>
+                      Baseline snapshot {new Date(agentResult.window.baselineCapturedAt).toLocaleString()} · {agentResult.window.coverageComplete ? "complete available coverage" : "partial historical coverage"}
+                    </small>
+                  </div>
+                  <div className="audit-section">
+                    <strong>Validated claims</strong>
+                    {agentResult.claims.map((claim, index) => (
+                      <div className="audit-claim" key={`${claim.text}-${index}`}>
+                        <span>{claim.kind} · {claim.confidence}</span>
+                        <p>{claim.text}</p>
+                        <code>{claim.factIds.join(", ")}</code>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="audit-section">
+                    <strong>Read-only ledger calls</strong>
+                    {agentResult.toolsUsed.map((tool, index) => (
+                      <div className="audit-tool" key={`${tool.name}-${index}`}>
+                        <code>{tool.name}({JSON.stringify(tool.arguments)})</code>
+                        <span>{tool.resultCount} result{tool.resultCount === 1 ? "" : "s"} · {tool.evidenceIds.length} evidence link{tool.evidenceIds.length === 1 ? "" : "s"}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="audit-telemetry">
+                    <span>{agentResult.telemetry.modelCalls} agent turns</span>
+                    <span>{agentResult.telemetry.inputTokens} input tokens</span>
+                    <span>{agentResult.telemetry.outputTokens} output tokens</span>
+                    <span>{agentResult.fallbackReason ?? "no fallback"}</span>
+                    {agentResult.fallbackDetail && <span>{agentResult.fallbackDetail}</span>}
+                  </div>
+                </details>
+              )}
+              {agentRuns.length > 0 && (
+                <details className="agent-audit run-history">
+                  <summary>Recent agent runs ({agentRuns.length})</summary>
+                  <div className="run-list">
+                    {agentRuns.map((run) => (
+                      <div className="run-row" key={run.id}>
+                        <div>
+                          <strong>{run.question}</strong>
+                          <small>{new Date(run.completedAt).toLocaleString()}</small>
+                        </div>
+                        <span>{run.answer.provider ?? "rules"} · {Math.round(run.durationMs)} ms</span>
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              )}
             </section>
 
             <section className="progress-card">
               <div className="progress-topline">
                 <span className="eyebrow">SPRINT PROGRESS</span>
-                <span className="trend">+13% since Monday</span>
+                <span className="trend">
+                  {completedPointDelta === 0
+                    ? "No point change in window"
+                    : `${completedPointDelta > 0 ? "+" : ""}${completedPointDelta} points in window`}
+                </span>
               </div>
               <div className="progress-number">
                 <strong>{progress}%</strong>
@@ -864,7 +1115,14 @@ function App() {
               <div className="panel-heading">
                 <div>
                   <span className="eyebrow">CHANGE FEED</span>
-                  <h2>Since Monday, 09:00</h2>
+                  <h2>
+                    Since {new Date(comparisonWindow.effectiveSince).toLocaleString("en", {
+                      month: "short",
+                      day: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </h2>
                 </div>
                 <button className="text-button">View all →</button>
               </div>
@@ -928,6 +1186,7 @@ function App() {
           loading={discoveryLoading}
           onClose={() => setSetupOpen(false)}
           onDiscover={discover}
+          onSaveJira={saveJira}
           onSave={saveConnection}
           projects={projects}
           saving={setupSaving}

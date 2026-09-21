@@ -1,5 +1,6 @@
 import type {
   ActivityEvent,
+  ComparisonWindow,
   QualityMetrics,
   SprintSnapshot,
   SyncMetrics,
@@ -9,6 +10,7 @@ interface DashboardResponse {
   baseline: SprintSnapshot;
   current: SprintSnapshot;
   events: ActivityEvent[];
+  window: ComparisonWindow;
   syncMetrics: SyncMetrics | null;
   qualityMetrics: QualityMetrics;
   source: "ledger";
@@ -16,8 +18,10 @@ interface DashboardResponse {
 
 export async function loadDashboard(
   signal?: AbortSignal,
+  since: string | null = null,
 ): Promise<DashboardResponse> {
-  const response = await fetch("/api/dashboard", { signal });
+  const query = since ? `?since=${encodeURIComponent(since)}` : "";
+  const response = await fetch(`/api/dashboard${query}`, { signal });
   if (!response.ok) {
     throw new Error(`Dashboard request failed with HTTP ${response.status}`);
   }

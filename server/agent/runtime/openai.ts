@@ -20,26 +20,31 @@ interface OpenAIRuntimeConfig {
   apiKey: string;
   model: string;
   baseUrl?: string;
+  provider?: string;
+  defaultHeaders?: Record<string, string>;
 }
 
 function responseInput(
   conversation: AgentConversationItem[],
 ): ResponseInput {
-  return conversation.map((item) => {
-    if (item.role === "user") return { role: "user", content: item.content };
+  return conversation.flatMap((item) => {
+    if (item.role === "user") return [{ role: "user", content: item.content }];
     if (item.role === "tool") {
-      return {
+      return [{
         type: "function_call_output",
         call_id: item.toolCallId,
         output: item.content,
-      };
+      }];
     }
-    return {
+    if (Array.isArray(item.toolCall.opaque)) {
+      return item.toolCall.opaque as ResponseInput;
+    }
+    return [{
       type: "function_call",
       call_id: item.toolCall.id,
       name: item.toolCall.name,
       arguments: item.toolCall.arguments,
-    };
+    }];
   }) as ResponseInput;
 }
 
@@ -54,15 +59,17 @@ function responseTools(tools: AgentFunctionTool[]): FunctionTool[] {
 }
 
 export class OpenAIResponsesRuntime implements AgentRuntime {
-  readonly provider = "openai";
+  readonly provider: string;
   readonly model: string;
   private readonly client: OpenAI;
 
   constructor(config: OpenAIRuntimeConfig) {
+    this.provider = config.provider ?? "openai";
     this.model = config.model;
     this.client = new OpenAI({
       apiKey: config.apiKey,
       baseURL: config.baseUrl,
+      defaultHeaders: config.defaultHeaders,
       timeout: 20_000,
       maxRetries: 1,
     });
@@ -88,6 +95,7 @@ export class OpenAIResponsesRuntime implements AgentRuntime {
         id: call.call_id,
         name: call.name,
         arguments: call.arguments,
+        opaque: response.output,
       },
       usage: {
         inputTokens: response.usage?.input_tokens ?? 0,
@@ -114,6 +122,10 @@ function chatMessages(
         content: item.content,
       });
     } else {
+      if (item.toolCall.opaque && typeof item.toolCall.opaque === "object") {
+        messages.push(item.toolCall.opaque as ChatCompletionMessageParam);
+        continue;
+      }
       messages.push({
         role: "assistant",
         content: null,
@@ -158,6 +170,7 @@ export class OpenAICompatibleRuntime implements AgentRuntime {
     this.client = new OpenAI({
       apiKey: config.apiKey || "local",
       baseURL: config.baseUrl,
+      defaultHeaders: config.defaultHeaders,
       timeout: 20_000,
       maxRetries: 1,
     });
@@ -184,6 +197,7 @@ export class OpenAICompatibleRuntime implements AgentRuntime {
         id: call.id,
         name: call.function.name,
         arguments: call.function.arguments,
+        opaque: response.choices[0]?.message,
       },
       usage: {
         inputTokens: response.usage?.prompt_tokens ?? 0,

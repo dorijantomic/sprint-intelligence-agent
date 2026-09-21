@@ -5,6 +5,7 @@ import {
   type ServerResponse,
 } from "node:http";
 import { resolveGitHubToken } from "../config/github-sync.js";
+import { SourceSecretStore } from "../config/source-secrets.js";
 import { runSprintAgent } from "../agent/run-agent.js";
 import type { AgentAnswer } from "../agent/types.js";
 import {
@@ -17,6 +18,7 @@ import {
   GitHubApiError,
   type GitHubProjectOption,
 } from "../connectors/github-discovery.js";
+import { JiraApiError } from "../connectors/jira-sprint.js";
 import { runEvaluationSuite } from "../evals/evaluate.js";
 import { SprintLedger } from "../ledger/ledger.js";
 import {
@@ -24,6 +26,11 @@ import {
   type GitHubConnectionConfig,
   type GitHubConnectionSyncResult,
 } from "../sync/github-connection.js";
+import {
+  syncJiraConnection,
+  type JiraConnectionConfig,
+  type JiraConnectionSyncResult,
+} from "../sync/jira-connection.js";
 import { serializeSnapshot } from "./dashboard.js";
 
 type TokenResolver = () => string;
@@ -33,17 +40,25 @@ type ConnectionSync = (
   config: GitHubConnectionConfig,
   token: string,
 ) => Promise<GitHubConnectionSyncResult>;
+type JiraConnectionSync = (
+  ledger: SprintLedger,
+  config: JiraConnectionConfig,
+  apiToken: string,
+) => Promise<JiraConnectionSyncResult>;
 type AskAgent = (
   ledger: SprintLedger,
   question: string,
+  since: string | null,
 ) => Promise<AgentAnswer>;
 
 export interface ApiServerOptions {
   resolveToken?: TokenResolver;
   discoverProjects?: ProjectDiscovery;
   syncConnection?: ConnectionSync;
+  syncJiraConnection?: JiraConnectionSync;
   askAgent?: AskAgent;
   agentConfigStore?: AgentConfigStore;
+  sourceSecretStore?: SourceSecretStore;
 }
 
 function sendJson(response: ServerResponse, statusCode: number, body: unknown): void {
@@ -69,12 +84,50 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
 
 function requiredString(
   value: unknown,
-  field: keyof GitHubConnectionConfig,
+  field: string,
 ): string {
   if (typeof value !== "string" || !value.trim()) {
     throw new Error(`${field} is required`);
   }
   return value.trim();
+}
+
+function parseJiraConnectionConfig(body: unknown): {
+  config: JiraConnectionConfig;
+  apiToken: string | null;
+} {
+  if (!body || typeof body !== "object") {
+    throw new Error("A Jira connection is required");
+  }
+  const input = body as Record<string, unknown>;
+  const sprintId = Number(input.sprintId);
+  if (!Number.isSafeInteger(sprintId) || sprintId <= 0) {
+    throw new Error("sprintId must be a positive integer");
+  }
+  const parsedUrl = new URL(requiredString(input.baseUrl, "baseUrl"));
+  if (!["http:", "https:"].includes(parsedUrl.protocol)) {
+    throw new Error("baseUrl must use HTTP or HTTPS");
+  }
+  const baseUrl = parsedUrl.toString().replace(/\/$/, "");
+  const storyPointField = typeof input.storyPointField === "string"
+    ? input.storyPointField.trim() || null
+    : null;
+  return {
+    config: {
+      baseUrl,
+      email: requiredString(input.email, "email"),
+      sprintId,
+      sprintName: requiredString(input.sprintName, "sprintName"),
+      storyPointField,
+    },
+    apiToken: typeof input.apiToken === "string" && input.apiToken.trim()
+      ? input.apiToken.trim()
+      : null,
+  };
+}
+
+function jiraSecretKey(externalId: string): string {
+  return `jira:${externalId}`;
 }
 
 function parseGitHubConnectionConfig(body: unknown): GitHubConnectionConfig {
@@ -99,12 +152,21 @@ function parseGitHubConnectionConfig(body: unknown): GitHubConnectionConfig {
 
 function isAuthenticationError(error: unknown): boolean {
   if (error instanceof GitHubApiError) return error.kind === "authentication";
+  if (error instanceof JiraApiError) return [401, 403].includes(error.status);
   const message = error instanceof Error ? error.message : String(error);
   return /authentication|gh auth login|read:project|HTTP 401|HTTP 403/i.test(message);
 }
 
 function safeErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Unknown provider error";
+}
+
+function optionalIsoTimestamp(value: unknown): string | null {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value !== "string" || !Number.isFinite(new Date(value).getTime())) {
+    throw new Error("since must be a valid ISO timestamp");
+  }
+  return new Date(value).toISOString();
 }
 
 export function createApiServer(
@@ -114,9 +176,14 @@ export function createApiServer(
   const tokenResolver = options.resolveToken ?? (() => resolveGitHubToken(null));
   const projectDiscovery = options.discoverProjects ?? discoverGitHubProjects;
   const connectionSync = options.syncConnection ?? syncGitHubConnection;
+  const jiraConnectionSync = options.syncJiraConnection ?? syncJiraConnection;
   const agentConfigStore = options.agentConfigStore ?? new AgentConfigStore();
-  const askAgent = options.askAgent ?? ((targetLedger, question) =>
-    runSprintAgent(targetLedger, question, { configStore: agentConfigStore }));
+  const sourceSecretStore = options.sourceSecretStore ?? new SourceSecretStore();
+  const askAgent = options.askAgent ?? ((targetLedger, question, since) =>
+    runSprintAgent(targetLedger, question, {
+      configStore: agentConfigStore,
+      since,
+    }));
   const syncingConnections = new Set<number>();
 
   return createServer((request, response) => {
@@ -129,23 +196,30 @@ export function createApiServer(
       }
 
       if (request.method === "GET" && url.pathname === "/api/dashboard") {
-        const snapshots = ledger.getRecentSnapshots(2);
-        if (snapshots.length === 0) {
+        if (ledger.getRecentSnapshots(1).length === 0) {
           sendJson(response, 409, {
             error: "At least one sprint snapshot is required",
           });
           return;
         }
-        const current = snapshots[0];
-        const baseline = snapshots[1] ?? current;
+        const storedWindow = ledger.getComparisonWindow(
+          optionalIsoTimestamp(url.searchParams.get("since")),
+        );
+        const current = storedWindow.current;
+        const baseline = storedWindow.baseline;
         const evaluation = runEvaluationSuite();
         sendJson(response, 200, {
           baseline: serializeSnapshot(baseline),
           current: serializeSnapshot(current),
-          events:
-            baseline.id === current.id
-              ? []
-              : ledger.getEventsBetweenSnapshots(baseline.id, current.id),
+          events: ledger.getEventsSince(current.id, storedWindow.effectiveSince),
+          window: {
+            requestedSince: storedWindow.requestedSince,
+            effectiveSince: storedWindow.effectiveSince,
+            baselineCapturedAt: baseline.capturedAt,
+            currentCapturedAt: current.capturedAt,
+            coverageComplete: storedWindow.coverageComplete,
+            strategy: storedWindow.strategy,
+          },
           syncMetrics: ledger.getLatestSyncRunForSnapshot(current.id),
           qualityMetrics: {
             factualCorrectness: evaluation.metrics.factualCorrectness,
@@ -163,7 +237,7 @@ export function createApiServer(
 
       if (request.method === "GET" && url.pathname === "/api/connections") {
         sendJson(response, 200, {
-          connections: ledger.getConnectionConfigs("github"),
+          connections: ledger.getConnectionConfigs(),
         });
         return;
       }
@@ -171,6 +245,15 @@ export function createApiServer(
       if (request.method === "GET" && url.pathname === "/api/agent/config") {
         sendJson(response, 200, {
           config: await getPublicAgentConfig(agentConfigStore),
+        });
+        return;
+      }
+
+      if (request.method === "GET" && url.pathname === "/api/agent/runs") {
+        const requestedLimit = Number(url.searchParams.get("limit") ?? 10);
+        const limit = Number.isSafeInteger(requestedLimit) ? requestedLimit : 10;
+        sendJson(response, 200, {
+          runs: ledger.getRecentAgentRuns(limit),
         });
         return;
       }
@@ -287,6 +370,36 @@ export function createApiServer(
         return;
       }
 
+      if (
+        request.method === "POST" &&
+        url.pathname === "/api/connections/jira"
+      ) {
+        try {
+          const { config, apiToken } = parseJiraConnectionConfig(
+            await readJson(request),
+          );
+          const externalId = `${config.baseUrl}/sprints/${config.sprintId}`;
+          if (apiToken) {
+            await sourceSecretStore.set(jiraSecretKey(externalId), apiToken);
+          } else if (!await sourceSecretStore.get(jiraSecretKey(externalId))) {
+            throw new Error("apiToken is required for a new Jira connection");
+          }
+          const connection = ledger.saveConnectionConfig(
+            "jira",
+            externalId,
+            `Jira · ${config.sprintName}`,
+            config,
+          );
+          sendJson(response, 201, { connection });
+        } catch (error) {
+          sendJson(response, 400, {
+            error: safeErrorMessage(error),
+            kind: "validation",
+          });
+        }
+        return;
+      }
+
       if (request.method === "POST" && url.pathname === "/api/agent/ask") {
         try {
           const body = await readJson(request);
@@ -298,7 +411,12 @@ export function createApiServer(
           if (question.length > 500) {
             throw new Error("question must be 500 characters or fewer");
           }
-          sendJson(response, 200, { answer: await askAgent(ledger, question) });
+          const since = body && typeof body === "object" && "since" in body
+            ? optionalIsoTimestamp(body.since)
+            : null;
+          sendJson(response, 200, {
+            answer: await askAgent(ledger, question, since),
+          });
         } catch (error) {
           const validation = /question/.test(safeErrorMessage(error));
           sendJson(response, validation ? 400 : 500, {
@@ -312,10 +430,8 @@ export function createApiServer(
       const syncMatch = url.pathname.match(/^\/api\/connections\/(\d+)\/sync$/);
       if (request.method === "POST" && syncMatch) {
         const connectionId = Number(syncMatch[1]);
-        const connection = ledger.getConnectionConfig<GitHubConnectionConfig>(
-          connectionId,
-        );
-        if (!connection || connection.provider !== "github") {
+        const connection = ledger.getConnectionConfig(connectionId);
+        if (!connection) {
           sendJson(response, 404, { error: "Connection not found" });
           return;
         }
@@ -329,11 +445,29 @@ export function createApiServer(
 
         syncingConnections.add(connectionId);
         try {
-          const result = await connectionSync(
-            ledger,
-            connection.config,
-            tokenResolver(),
-          );
+          const result = connection.provider === "github"
+            ? await connectionSync(
+                ledger,
+                connection.config as GitHubConnectionConfig,
+                tokenResolver(),
+              )
+            : connection.provider === "jira"
+              ? await (async () => {
+                  const apiToken = await sourceSecretStore.get(
+                    jiraSecretKey(connection.externalId),
+                  );
+                  if (!apiToken) throw new Error("Jira API token is not configured");
+                  return jiraConnectionSync(
+                    ledger,
+                    connection.config as JiraConnectionConfig,
+                    apiToken,
+                  );
+                })()
+              : null;
+          if (!result) {
+            sendJson(response, 400, { error: "Unsupported connection provider" });
+            return;
+          }
           sendJson(response, 200, {
             status: result.snapshotCreated ? "updated" : "unchanged",
             ...result,

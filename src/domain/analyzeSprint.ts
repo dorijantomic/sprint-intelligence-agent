@@ -237,7 +237,7 @@ export function answerSprintQuestion(
     return `${analysis.risks.length} risks are open, including ${highRisks.length} high-severity item${highRisks.length === 1 ? "" : "s"}. ${highRisks.map((item) => `${item.itemId}: ${item.title}.`).join(" ")}`;
   }
 
-  return `${analysis.changes.length} material changes since Monday: ${analysis.completedCount} items are done, ${analysis.addedCount} entered scope, and ${analysis.risks.length} risks need attention. Highest priority: ${highRisks.map((item) => `${item.itemId} (${item.title.toLowerCase()})`).join(", ") || "none"}.`;
+  return `${analysis.changes.length} material changes in the selected window: ${analysis.completedCount} items are done, ${analysis.addedCount} entered scope, and ${analysis.risks.length} risks need attention. Highest priority: ${highRisks.map((item) => `${item.itemId} (${item.title.toLowerCase()})`).join(", ") || "none"}.`;
 }
 
 export function activityEventsToChanges(

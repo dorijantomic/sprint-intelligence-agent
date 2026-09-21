@@ -1,118 +1,79 @@
-# Sprint Intelligence Agent
+# Orbit · Sprint Intelligence Agent
 
-An engineering-management assistant that turns GitHub and Jira-style activity into an evidence-backed view of sprint health.
+An evidence-backed engineering-management agent for GitHub Projects and Jira Cloud. Orbit keeps a persistent sprint ledger, compares real historical snapshots, detects risk deterministically, and lets any tool-capable AI runtime explain what changed without inventing facts.
 
-The agent maintains a persistent sprint ledger, compares snapshots over time, and answers questions such as:
+![Orbit dashboard](docs/assets/dashboard.png)
 
-- What changed since Monday?
+## What it answers
+
+- What changed since Monday—or any selected date?
 - Which work is blocked, and what is it blocked by?
-- Which tickets have gone stale?
-- What new comments or decisions need attention?
-- Which items put the sprint goal at risk?
-- What should someone returning from holiday catch up on first?
+- Which active items have gone stale?
+- What new comments and reviews need attention?
+- What threatens the sprint goal?
+- What should someone returning from holiday read first?
 
-## Why this project
+Every answer includes exact work-item or activity evidence. Model claims are accepted only when their cited fact IDs were returned by a typed ledger tool during that run; invalid grounding falls back to the deterministic engine.
 
-Engineering teams already have plenty of issue and pull-request data. What they often lack is a trustworthy explanation of how that data changed, why it matters, and what needs attention now. This project is designed around that real workflow rather than around a generic chat interface.
+## Architecture
 
-## Product principles
+![Orbit architecture](docs/assets/architecture.svg)
 
-- Evidence before summaries: every claim links back to its source event.
-- History is first-class: snapshots and normalized events are retained in a sprint ledger.
-- Rules plus AI: deterministic checks identify stale and blocked work; an agent explains and prioritizes the result.
-- Human control: users approve mutations and outbound actions.
-- Measurable quality: eval fixtures test change detection, citations, and risk classification.
+GitHub and Jira normalize their native objects into one source-neutral SQLite ledger. Immutable snapshots and timestamped activity feed deterministic analyzers. A replaceable agent runtime can request five narrow, read-only tools, but it never receives database access. Orbit validates submitted claims, resolves source links itself, and stores the complete audit trace.
 
-## Planned architecture
+See [the architecture notes](docs/architecture.md) for the data boundaries and trust model.
 
-```mermaid
-flowchart LR
-    G[GitHub] --> I[Connectors and sync]
-    J[Jira-like source] --> I
-    I --> L[(Persistent sprint ledger)]
-    L --> R[Deterministic analyzers]
-    L --> A[Agent with retrieval tools]
-    R --> A
-    A --> API[Application API]
-    API --> UI[React dashboard]
-    A --> E[Evidence and eval traces]
-```
+## Run locally
 
-See [docs/architecture.md](docs/architecture.md) for the system boundaries and data model.
-
-## MVP
-
-1. Connect one GitHub repository and import milestones, issues, pull requests, comments, reviews, and status changes.
-2. Define a sprint and create immutable snapshots.
-3. Show a timeline and answer “what changed since Monday?” with exact citations.
-4. Detect blocked relationships, stale work, scope changes, and review bottlenecks.
-5. Generate a concise sprint-risk report and holiday catch-up brief.
-6. Ship a small evaluation set and record accuracy, latency, and cost.
-
-## Repository status
-
-The repository includes an interactive React dashboard, deterministic before/after sprint analysis, evidence-linked risk signals, a source-neutral SQLite ledger, a read-only GitHub Projects connector, and an evidence-constrained question-answering agent. Its setup flow discovers personal and organization projects from the active GitHub CLI login, stores the selected project and iteration in SQLite without storing credentials, and runs synchronization directly from the dashboard. The connector imports native blocker relationships plus timestamped comments and reviews, reconciles dependencies when they are removed, and records sync latency, API requests, throughput, and failures. Identical syncs do not create duplicate snapshots, concurrent syncs for one connection are rejected, and the first real snapshot can immediately power the dashboard. GitHub-specific data is normalized at the connector boundary so future Jira support does not change the ledger or analysis engine.
-
-The agent can call only five typed, read-only ledger tools: sprint overview, snapshot changes, deterministic risks, work-item/blocker detail, and timestamped activity. Its runtime boundary is AI-provider-neutral: a hosted model, OpenAI-compatible local service, or custom agent module receives the same tool definitions and returns normalized tool calls. Model-generated claims are accepted only when every claim cites fact IDs retrieved during that run; the server resolves those facts to exact source links. Invalid or invented grounding triggers the deterministic fallback. Agent runs persist their tool trace, provider, model, latency, and token counts for audit and evaluation.
-
-The public [demo sprint board](https://github.com/users/dorijantomic/projects/1) contains the live iteration, priorities, estimates, comments, scope change, and dependency chain used to exercise the connector end to end.
-
-Run it locally:
+Requirements: Node.js 24+ and, for GitHub sync, an authenticated GitHub CLI.
 
 ```bash
-npm install
-npm run dev
+git clone https://github.com/dorijantomic/sprint-intelligence-agent.git
+cd sprint-intelligence-agent
+npm run start:local
 ```
 
-This starts the ledger-backed API on port `8787` and the Vite dashboard on port `5173`. On first run, the API creates an ignored local SQLite database and seeds two demo snapshots so the complete persistence-to-dashboard path is immediately usable.
+Open `http://localhost:5173`. The launcher installs dependencies when needed, starts the API on `8787`, starts the React dashboard on `5173`, and seeds a demo ledger on first run.
 
-To connect a real GitHub Project iteration, authenticate GitHub CLI with read-only Projects access:
+### Connect GitHub Projects
 
 ```bash
 gh auth refresh -s read:project
 ```
 
-Start the application, choose **Connect GitHub**, discover your projects, select an iteration, and use **Sync now**. The local API resolves the active CLI credential only when it talks to GitHub; credentials are never returned to the browser or written to SQLite.
+Choose **Connect source → GitHub Projects**, discover a project and iteration, save it, then select **Sync now**. Orbit reads the active CLI credential at request time; it never returns that credential to the browser or writes it to SQLite.
 
-For scripts or CI, the existing command-line path remains available: copy `.env.example` to `.env`, provide the Project and iteration identifiers, then run `npm run sync:github`. `GITHUB_TOKEN` remains available as an optional CI override.
+### Connect Jira Cloud
 
-AI narration is optional. Without an agent configuration, `/api/agent/ask` uses the deterministic analyzers and still returns structured claims, citations, and a tool trace. Open **AI provider** in the dashboard to select a runtime, enter its model and credentials, then use **Save and test**. Changes apply immediately without restarting the application. The API key is never returned to the browser after submission.
+Choose **Connect source → Jira Cloud** and enter the site URL, Atlassian email, API token, sprint ID, and optional story-point custom field. Jira integration is read-only and imports sprint metadata, work items, comments, status, ownership, priorities, estimates, and blocker links.
 
-Local UI settings are stored in the ignored `.data/agent-config.json` file with owner-only permissions. This is appropriate for the local application; a hosted deployment should replace it with its platform secret manager. Environment variables take precedence over the local file and make the UI settings read-only, which keeps CI and deployed configuration deterministic.
+Connector tokens live outside SQLite in ignored `.data/source-secrets.json` with owner-only permissions. A hosted deployment should replace this local store with a managed secret service.
 
-The same runtime choices can be configured non-interactively with generic `AGENT_*` settings:
+## Bring your own agent
 
-```env
-# No external model
-AGENT_PROVIDER=deterministic
+AI narration is optional. Without a provider, Orbit still returns deterministic, structured claims and citations. Open **AI provider** to configure and test a runtime without restarting the app.
 
-# OpenAI Responses adapter
-AGENT_PROVIDER=openai
-AGENT_MODEL=gpt-5.6
-AGENT_API_KEY=...
+| Runtime | Protocol | Typical use |
+| --- | --- | --- |
+| OpenCode Go | Responses or Chat Completions | Subscription models such as `gpt-5.6-luna` |
+| Google Gemini | OpenAI-compatible Chat Completions | An AI Studio key |
+| OpenAI | Responses API | Hosted OpenAI models |
+| OpenAI-compatible | Chat Completions | Ollama, LM Studio, vLLM, or another gateway |
+| Custom module | `AgentRuntime` contract | Anthropic, a CLI agent, or an internal service |
 
-# Google Gemini with an AI Studio key; endpoint and default model are automatic
-AGENT_PROVIDER=gemini
-AGENT_API_KEY=...
-
-# Any service implementing OpenAI-compatible Chat Completions, including
-# local Ollama, LM Studio, or vLLM endpoints
-AGENT_PROVIDER=openai-compatible
-AGENT_BASE_URL=http://localhost:11434/v1
-AGENT_MODEL=your-tool-capable-model
-AGENT_API_KEY=local
-```
-
-Agents that use a different API are supplied as a runtime module:
+UI secrets are stored in ignored `.data/agent-config.json` with mode `0600` and are never returned after submission. Environment configuration takes precedence and makes UI settings read-only:
 
 ```env
-AGENT_PROVIDER=custom
-AGENT_RUNTIME_MODULE=./local/my-agent-runtime.ts
+AGENT_PROVIDER=opencode-go
+AGENT_MODEL=gpt-5.6-luna
+AGENT_API_KEY=...
 ```
 
-That module exports `createAgentRuntime` (or a default factory) returning the `AgentRuntime` contract from `server/agent/runtime/types.ts`. It can use Anthropic, Gemini, a local CLI agent, an internal service, or another implementation. The runtime only requests typed tool calls; Orbit executes those calls, validates cited fact IDs, and resolves evidence itself. This keeps provider credentials and SDK details outside the sprint ledger and trust boundary. Existing `OPENAI_API_KEY` and `OPENAI_MODEL` settings continue to work as a backward-compatible OpenAI shortcut.
+OpenCode Go uses its `/zen/go/v1` gateway. `gpt-5.6-luna` uses the Responses adapter; Go models documented as OpenAI-compatible use the Chat Completions adapter. Models whose Go endpoint uses the Anthropic Messages protocol can be supplied through a custom runtime module.
 
-Quality checks:
+A custom module exports `createAgentRuntime` or a default factory implementing `server/agent/runtime/types.ts`. The same typed tools and evidence gate apply regardless of provider.
+
+## Quality and evaluations
 
 ```bash
 npm test
@@ -120,17 +81,44 @@ npm run build
 npm run eval
 ```
 
-The evaluation gate replays versioned sprint histories and measures factual correctness, citation coverage, unsupported-claim rate, runtime, model calls, and estimated cost. It writes a machine-readable report to the ignored `.artifacts/eval-report.json` path and exits nonzero if a threshold regresses. GitHub Actions runs the same tests, build, and eval gate for pushes and pull requests, then uploads the report as a workflow artifact.
+The deterministic evaluation gate replays versioned sprint histories, exits nonzero on regression, and writes `.artifacts/eval-report.json`. Current baseline: **39/39 assertions**, **100% factual correctness**, **100% citation coverage**, and **0% unsupported claims** across three scenarios. The checked-in summary is [docs/assets/eval-results.json](docs/assets/eval-results.json).
 
-## Intended stack
+Live agent evaluations make real provider calls and therefore require an explicit cost acknowledgement:
 
-- TypeScript application with separate browser and server boundaries
-- React dashboard
-- Node.js sync service with provider-neutral connectors
-- SQLite for local development and PostgreSQL for deployment
-- Vitest for unit and integration tests
-- GitHub Actions for CI and agent evaluations
+```bash
+npm run eval:live -- --confirm-cost
+# or one scenario
+npm run eval:live -- --confirm-cost --scenario blocked-chain
+```
 
-## Portfolio bar
+The live report records model/tool selection, grounding, calls, latency, tokens, and estimated cost in `.artifacts/live-eval-report.json`. The current OpenCode Go / `gpt-5.6-luna` run passed **3/3 scenarios** with a **100% grounded-claim rate** in **25.2 seconds**, using **17,973 tokens** across 11 calls at an estimated **$0.00550**. GitHub Actions runs the deterministic test, build, and eval gates for every push and pull request.
 
-Before calling the project complete, it should include a 60–90 second demo, screenshots, an architecture diagram, meaningful tests, eval results, latency/cost measurements, known failure modes, and one-command local setup.
+## 60–90 second demo route
+
+1. Show a connected project and select **Since Monday**.
+2. Sync and point out whether a new immutable snapshot was created.
+3. Ask “What changed since Monday?” and open the exact evidence links.
+4. Ask “What is blocked?” and show the blocker chain.
+5. Expand the agent audit trace to show typed calls, fact IDs, tokens, and fallback state.
+6. Open **AI provider** to show that the model is replaceable while the ledger and evidence gate stay fixed.
+7. Finish on the quality card and evaluation results.
+
+## Known failure modes and boundaries
+
+- GitHub personal Projects do not currently have the same Projects v2 webhook coverage as organization projects, so the local product uses explicit reconciliation syncs.
+- Jira story-point fields are instance-specific; setup defaults to `customfield_10016` and lets the operator override it.
+- The first snapshot cannot reconstruct history that was never ingested. Orbit marks requested windows as incomplete instead of implying full coverage.
+- Provider quotas, unsupported tool-calling models, or malformed model claims trigger an explicit deterministic fallback recorded in the audit trace.
+- Direct sync is intentionally optimized for a local/small-team product. A hosted installation should add signed webhooks, durable jobs, reconciliation polling, managed secrets, and tenant isolation.
+- All source and agent tools are read-only. Mutating tickets or publishing briefs would require a separate human-approval boundary.
+
+## Current implementation
+
+- React/TypeScript dashboard with real temporal-window controls
+- SQLite ledger with immutable snapshots, events, relationships, sync runs, and agent runs
+- Read-only GitHub Projects and Jira Cloud connectors
+- Blockers, staleness, scope change, review risk, and holiday catch-up analysis
+- Five typed ledger tools and a provider-neutral agent runtime
+- Claim/evidence validation with deterministic fallback
+- In-UI agent configuration and auditable run history
+- Unit, integration, deterministic eval, live eval, and CI quality gates

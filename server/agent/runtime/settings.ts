@@ -4,6 +4,7 @@ import { dirname, resolve } from "node:path";
 export type AgentProvider =
   | "deterministic"
   | "openai"
+  | "opencode-go"
   | "gemini"
   | "openai-compatible"
   | "custom";
@@ -34,6 +35,7 @@ const defaultConfig: StoredAgentConfig = {
 const providers = new Set<AgentProvider>([
   "deterministic",
   "openai",
+  "opencode-go",
   "gemini",
   "openai-compatible",
   "custom",
@@ -84,6 +86,11 @@ export function parseAgentConfig(
   if (provider === "openai") {
     config.model ??= "gpt-5.6";
     if (!config.apiKey) throw new Error("An API key is required for OpenAI");
+  }
+  if (provider === "opencode-go") {
+    config.model ??= "gpt-5.6-luna";
+    config.baseUrl = "https://opencode.ai/zen/go/v1";
+    if (!config.apiKey) throw new Error("An OpenCode Go API key is required");
   }
   if (provider === "gemini") {
     config.model ??= "gemini-3.8-flash";

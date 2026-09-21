@@ -25,6 +25,15 @@ export interface SprintSnapshot {
   items: WorkItem[];
 }
 
+export interface ComparisonWindow {
+  requestedSince: string | null;
+  effectiveSince: string;
+  baselineCapturedAt: string;
+  currentCapturedAt: string;
+  coverageComplete: boolean;
+  strategy: "latest" | "requested";
+}
+
 export interface ActivityEvent {
   id: string;
   itemId: string;

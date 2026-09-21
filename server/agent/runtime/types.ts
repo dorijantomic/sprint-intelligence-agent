@@ -8,6 +8,8 @@ export interface AgentToolCall {
   id: string;
   name: string;
   arguments: string;
+  /** Provider-owned continuation state carried back only to the same runtime. */
+  opaque?: unknown;
 }
 
 export type AgentConversationItem =

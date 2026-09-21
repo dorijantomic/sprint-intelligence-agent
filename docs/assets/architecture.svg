@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="650" viewBox="0 0 1200 650" role="img" aria-labelledby="title desc">
+  <title id="title">Orbit sprint intelligence architecture</title>
+  <desc id="desc">Provider data flows through normalized connectors into a persistent ledger, deterministic analysis, typed tools, replaceable agent runtimes, and an evidence-backed React dashboard.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#839197"/>
+    </marker>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="5" stdDeviation="7" flood-color="#071014" flood-opacity=".25"/>
+    </filter>
+    <style>
+      .title{font:700 30px Inter,system-ui,sans-serif;fill:#f3f6f4}.subtitle{font:14px Inter,system-ui,sans-serif;fill:#92a0a6}.box{fill:#182229;stroke:#3b484e;stroke-width:1.5;rx:14;filter:url(#shadow)}.accent{fill:#e4ff67;stroke:#e4ff67}.soft{fill:#253138;stroke:#49565c}.label{font:700 15px Inter,system-ui,sans-serif;fill:#edf2ef}.copy{font:12px Inter,system-ui,sans-serif;fill:#9eabb0}.dark{fill:#172027}.darkcopy{fill:#4d5a5f}.arrow{fill:none;stroke:#839197;stroke-width:2;marker-end:url(#arrow)}.dash{fill:none;stroke:#5f6c72;stroke-width:1.5;stroke-dasharray:6 6}.tag{font:700 10px Inter,system-ui,sans-serif;fill:#182229;letter-spacing:1px}.trust{fill:#11191e;stroke:#5b686e;stroke-width:1;stroke-dasharray:7 6;rx:20}
+    </style>
+  </defs>
+  <rect width="1200" height="650" fill="#10171c"/>
+  <text x="55" y="58" class="title">Orbit · Evidence-backed sprint intelligence</text>
+  <text x="55" y="83" class="subtitle">Source-neutral ingestion, temporal memory, deterministic facts, replaceable agents</text>
+
+  <rect x="38" y="112" width="1124" height="465" class="trust"/>
+  <rect x="60" y="132" width="125" height="24" rx="12" class="accent"/>
+  <text x="77" y="149" class="tag">TRUST BOUNDARY</text>
+
+  <rect x="70" y="205" width="150" height="78" class="box"/>
+  <text x="92" y="236" class="label">GitHub Projects</text>
+  <text x="92" y="258" class="copy">Issues · PRs · activity</text>
+  <rect x="70" y="315" width="150" height="78" class="soft" rx="14"/>
+  <text x="92" y="346" class="label">Jira Cloud</text>
+  <text x="92" y="368" class="copy">Sprints · links · comments</text>
+
+  <rect x="285" y="245" width="165" height="108" class="box"/>
+  <text x="309" y="278" class="label">Connectors</text>
+  <text x="309" y="301" class="copy">Normalize provider data</text>
+  <text x="309" y="321" class="copy">Checkpoint · reconcile</text>
+
+  <rect x="515" y="220" width="175" height="158" class="accent" rx="16" filter="url(#shadow)"/>
+  <text x="541" y="259" class="label dark">Sprint ledger</text>
+  <text x="541" y="284" class="copy darkcopy">SQLite snapshots</text>
+  <text x="541" y="304" class="copy darkcopy">Events · relationships</text>
+  <text x="541" y="324" class="copy darkcopy">Temporal windows</text>
+  <text x="541" y="344" class="copy darkcopy">Agent run history</text>
+
+  <rect x="755" y="165" width="178" height="92" class="box"/>
+  <text x="779" y="198" class="label">Deterministic analysis</text>
+  <text x="779" y="221" class="copy">Diffs · risks · blockers</text>
+  <text x="779" y="239" class="copy">No model judgment</text>
+  <rect x="755" y="288" width="178" height="92" class="box"/>
+  <text x="779" y="321" class="label">Typed read tools</text>
+  <text x="779" y="344" class="copy">Facts + evidence IDs</text>
+  <text x="779" y="362" class="copy">No direct database access</text>
+
+  <rect x="990" y="155" width="142" height="112" class="soft" rx="14"/>
+  <text x="1012" y="188" class="label">Agent runtime</text>
+  <text x="1012" y="211" class="copy">Go · Gemini · OpenAI</text>
+  <text x="1012" y="231" class="copy">Local · custom</text>
+  <rect x="990" y="306" width="142" height="112" class="box"/>
+  <text x="1012" y="339" class="label">Evidence gate</text>
+  <text x="1012" y="362" class="copy">Validate fact IDs</text>
+  <text x="1012" y="382" class="copy">Resolve source links</text>
+  <text x="1012" y="402" class="copy">Fallback safely</text>
+
+  <rect x="755" y="455" width="178" height="82" class="box"/>
+  <text x="779" y="487" class="label">API + React UI</text>
+  <text x="779" y="510" class="copy">Dashboard · audit trace</text>
+  <rect x="990" y="455" width="142" height="82" class="soft" rx="14"/>
+  <text x="1012" y="487" class="label">Evaluation gates</text>
+  <text x="1012" y="510" class="copy">Rules + live agents</text>
+
+  <path d="M220 244 H285" class="arrow"/><path d="M220 354 H260 Q275 354 285 337" class="arrow"/>
+  <path d="M450 299 H515" class="arrow"/><path d="M690 270 Q723 250 755 222" class="arrow"/>
+  <path d="M690 325 H755" class="arrow"/><path d="M933 334 H990" class="arrow"/>
+  <path d="M990 211 H960 Q945 211 933 226" class="arrow"/>
+  <path d="M1061 267 V306" class="arrow"/><path d="M990 362 H960 Q944 362 933 350" class="arrow"/>
+  <path d="M1061 418 V455" class="arrow"/><path d="M990 496 H933" class="arrow"/>
+  <path d="M844 380 V455" class="arrow"/>
+
+  <text x="55" y="615" class="subtitle">Untrusted provider and model content stays outside the ledger; only application-validated facts become claims.</text>
+</svg>

@@ -103,4 +103,20 @@ describe("AgentConfigStore", () => {
       runtimeModule: null,
     });
   });
+
+  it("configures the OpenCode Go gateway from a subscription key", async () => {
+    const configStore = await store();
+    await configStore.save({
+      provider: "opencode-go",
+      apiKey: "go-test-key",
+    });
+
+    expect(await configStore.read()).toEqual({
+      provider: "opencode-go",
+      model: "gpt-5.6-luna",
+      apiKey: "go-test-key",
+      baseUrl: "https://opencode.ai/zen/go/v1",
+      runtimeModule: null,
+    });
+  });
 });

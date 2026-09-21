@@ -279,6 +279,65 @@ describe("SprintLedger", () => {
     ]);
   });
 
+  it("selects the snapshot at or before a requested comparison time", async () => {
+    ledger = new SprintLedger();
+    const connector = new FixtureConnector();
+    await synchronize(ledger, connector);
+    const connectionId = ledger.upsertConnection(
+      connector.provider,
+      connector.connectionExternalId,
+      connector.displayName,
+    );
+    const sunday = ledger.createSnapshot(
+      connectionId,
+      "iteration-42",
+      "2026-09-20T18:00:00Z",
+    );
+    ledger.createSnapshot(
+      connectionId,
+      "iteration-42",
+      "2026-09-21T12:00:00Z",
+    );
+    const current = ledger.createSnapshot(
+      connectionId,
+      "iteration-42",
+      "2026-09-23T15:00:00Z",
+    );
+
+    const window = ledger.getComparisonWindow("2026-09-21T00:00:00Z");
+
+    expect(window.baseline.id).toBe(sunday.id);
+    expect(window.current.id).toBe(current.id);
+    expect(window.requestedSince).toBe("2026-09-21T00:00:00.000Z");
+    expect(window.coverageComplete).toBe(true);
+  });
+
+  it("marks history incomplete when no snapshot predates the requested time", async () => {
+    ledger = new SprintLedger();
+    const connector = new FixtureConnector();
+    await synchronize(ledger, connector);
+    const connectionId = ledger.upsertConnection(
+      connector.provider,
+      connector.connectionExternalId,
+      connector.displayName,
+    );
+    const earliest = ledger.createSnapshot(
+      connectionId,
+      "iteration-42",
+      "2026-09-21T12:00:00Z",
+    );
+    ledger.createSnapshot(
+      connectionId,
+      "iteration-42",
+      "2026-09-23T15:00:00Z",
+    );
+
+    const window = ledger.getComparisonWindow("2026-09-20T00:00:00Z");
+
+    expect(window.baseline.id).toBe(earliest.id);
+    expect(window.coverageComplete).toBe(false);
+  });
+
   it("resolves evidence for blockers outside the sprint iteration", async () => {
     ledger = new SprintLedger();
     const connector = new FixtureConnector();

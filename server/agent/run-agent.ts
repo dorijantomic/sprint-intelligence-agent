@@ -1,9 +1,5 @@
-import {
-  analyzeSprint,
-  answerSprintQuestion,
-} from "../../src/domain/analyzeSprint.js";
+import { answerSprintQuestion } from "../../src/domain/analyzeSprint.js";
 import type { EvidenceLink } from "../../src/domain/types.js";
-import { serializeSnapshot } from "../api/dashboard.js";
 import { SprintLedger } from "../ledger/ledger.js";
 import { resolveAgentRuntime } from "./runtime/config.js";
 import type { AgentConfigStore } from "./runtime/settings.js";
@@ -14,8 +10,10 @@ import type {
 } from "./runtime/types.js";
 import { ledgerToolDefinitions, SprintLedgerTools } from "./tools.js";
 import type { AgentAnswer, AgentClaim, SubmittedAnswer } from "./types.js";
+import { resolveQuestionSince } from "./time-window.js";
 
 const MAX_MODEL_TURNS = 6;
+const MAX_READ_TOOL_CALLS = 4;
 
 const instructions = `You are Orbit, an evidence-backed sprint intelligence agent.
 
@@ -27,7 +25,8 @@ Rules:
 - Separate deterministic facts from your interpretation using the claim kind.
 - Use exact item IDs, counts, statuses, people, dates, and blocker relationships.
 - If the ledger cannot answer something, say so instead of guessing.
-- The comparison window is defined by the snapshot timestamps, even if the user says "Monday".
+- Treat the comparison window returned by the ledger tools as authoritative. State when historical coverage is incomplete.
+- Do not repeat an identical tool call. Use no more than four read calls and submit as soon as the question is supported.
 - When ready, call submit_answer. Do not produce an uncited prose response.`;
 
 const submitAnswerTool: AgentFunctionTool = {
@@ -67,6 +66,7 @@ export interface SprintAgentOptions {
   /** Supply any runtime implementing the provider-neutral tool-call contract. */
   runtime?: AgentRuntime | null;
   configStore?: AgentConfigStore;
+  since?: string | null;
 }
 
 function parseSubmittedAnswer(value: string): SubmittedAnswer {
@@ -194,17 +194,12 @@ function deterministicAnswer(
   question: string,
   started: number,
   fallbackReason: AgentAnswer["fallbackReason"],
+  fallbackDetail: string | null = null,
 ): AgentAnswer {
   for (const call of toolNamesForQuestion(question)) {
     tools.execute(call.name, JSON.stringify(call.arguments));
   }
-  const snapshots = ledger.getRecentSnapshots(2);
-  const current = serializeSnapshot(snapshots[0]);
-  const baseline = serializeSnapshot(snapshots[1] ?? snapshots[0]);
-  const events = baseline.id === current.id
-    ? []
-    : ledger.getEventsBetweenSnapshots(baseline.id, current.id);
-  const analysis = analyzeSprint(baseline, current);
+  const { analysis, events, window } = tools.analysisContext;
   const answer = answerSprintQuestion(question, analysis, events);
   const factIds = deterministicFactIds(question, tools);
   const evidenceIds = [
@@ -233,6 +228,8 @@ function deterministicAnswer(
     provider: null,
     model: null,
     fallbackReason,
+    fallbackDetail,
+    window,
     toolsUsed: tools.trace,
     telemetry: {
       durationMs: Number((performance.now() - started).toFixed(2)),
@@ -274,18 +271,26 @@ export async function runSprintAgent(
 ): Promise<AgentAnswer> {
   const startedAt = new Date().toISOString();
   const started = performance.now();
-  const tools = new SprintLedgerTools(ledger);
+  const since = resolveQuestionSince(question, options.since ?? null);
+  const tools = new SprintLedgerTools(ledger, { since });
   let runtime: AgentRuntime | null;
   try {
     runtime = options.runtime !== undefined
       ? options.runtime
       : await resolveAgentRuntime(options.configStore);
-  } catch {
+  } catch (error) {
     return recordRun(
       ledger,
       tools,
       question,
-      deterministicAnswer(ledger, tools, question, started, "agent_error"),
+      deterministicAnswer(
+        ledger,
+        tools,
+        question,
+        started,
+        "agent_error",
+        error instanceof Error ? error.message : "Agent configuration failed",
+      ),
       startedAt,
     );
   }
@@ -321,7 +326,9 @@ export async function runSprintAgent(
         tools:
           tools.trace.length === 0
             ? ledgerToolDefinitions
-            : [...ledgerToolDefinitions, submitAnswerTool],
+            : tools.trace.length >= MAX_READ_TOOL_CALLS
+              ? [submitAnswerTool]
+              : [...ledgerToolDefinitions, submitAnswerTool],
       });
       modelCalls += 1;
       inputTokens += turnResult.usage.inputTokens;
@@ -342,6 +349,8 @@ export async function runSprintAgent(
           provider: runtime.provider,
           model: runtime.model,
           fallbackReason: null,
+          fallbackDetail: null,
+          window: tools.analysisContext.window,
           toolsUsed: tools.trace,
           telemetry: {
             durationMs: Number((performance.now() - started).toFixed(2)),
@@ -361,13 +370,14 @@ export async function runSprintAgent(
       });
     }
     throw new Error("Agent exceeded its tool-call budget");
-  } catch {
+  } catch (error) {
     const fallback = deterministicAnswer(
       ledger,
       tools,
       question,
       started,
       "agent_error",
+      error instanceof Error ? error.message : "Agent runtime failed",
     );
     fallback.provider = modelCalls > 0 ? runtime.provider : null;
     fallback.model = modelCalls > 0 ? runtime.model : null;

@@ -53,6 +53,21 @@ describe("resolveAgentRuntime", () => {
     );
   });
 
+  it("configures OpenCode Go with a stable session-aware runtime", async () => {
+    vi.stubEnv("AGENT_PROVIDER", "opencode-go");
+    vi.stubEnv("AGENT_API_KEY", "go-test-key");
+    vi.stubEnv("AGENT_MODEL", "gpt-5.6-luna");
+
+    const runtime = await resolveAgentRuntime();
+
+    expect(runtime).toEqual(
+      expect.objectContaining({
+        provider: "opencode-go",
+        model: "gpt-5.6-luna",
+      }),
+    );
+  });
+
   it("loads a supplied custom agent runtime module", async () => {
     const directory = await mkdtemp(join(tmpdir(), "orbit-agent-runtime-"));
     temporaryDirectories.push(directory);

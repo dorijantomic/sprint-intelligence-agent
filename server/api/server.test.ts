@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentConfigStore } from "../agent/runtime/settings.js";
+import { SourceSecretStore } from "../config/source-secrets.js";
 import { seedDemoLedger } from "../fixtures/seed-demo.js";
 import { SprintLedger } from "../ledger/ledger.js";
 import { createApiServer } from "./server.js";
@@ -137,6 +138,64 @@ describe("dashboard API", () => {
     );
     expect(list.connections).toHaveLength(1);
     expect(JSON.stringify(list)).not.toContain("token");
+  });
+
+  it("stores a Jira token outside the ledger and uses it for synchronization", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "orbit-api-jira-secret-"));
+    temporaryDirectories.push(directory);
+    const secretStore = new SourceSecretStore(join(directory, "sources.json"));
+    const ledger = new SprintLedger();
+    ledgers.push(ledger);
+    const syncJira = vi.fn(async (_ledger, _config, apiToken: string) => ({
+      summary: {
+        batches: 1,
+        items: 2,
+        eventsAdded: 1,
+        relationships: 1,
+        cursor: null,
+        durationMs: 10,
+        requestCount: 4,
+      },
+      snapshotId: "jira-snapshot",
+      snapshotCreated: true,
+      snapshotItems: 2,
+    }));
+    const server = createApiServer(ledger, {
+      sourceSecretStore: secretStore,
+      syncJiraConnection: syncJira,
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address() as AddressInfo;
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+
+    const saveResponse = await fetch(`${baseUrl}/api/connections/jira`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        baseUrl: "https://team.atlassian.net",
+        email: "engineer@example.com",
+        apiToken: "jira-secret-token",
+        sprintId: 42,
+        sprintName: "Platform Sprint 9",
+        storyPointField: "customfield_10016",
+      }),
+    });
+    const saved = await saveResponse.json();
+    const syncResponse = await fetch(
+      `${baseUrl}/api/connections/${saved.connection.id}/sync`,
+      { method: "POST" },
+    );
+    const listed = await (await fetch(`${baseUrl}/api/connections`)).json();
+
+    expect(saveResponse.status).toBe(201);
+    expect(syncResponse.status).toBe(200);
+    expect(syncJira).toHaveBeenCalledWith(
+      ledger,
+      expect.objectContaining({ sprintId: 42 }),
+      "jira-secret-token",
+    );
+    expect(JSON.stringify({ saved, listed })).not.toContain("jira-secret-token");
   });
 
   it("rejects concurrent syncs for the same connection", async () => {
@@ -304,6 +363,15 @@ describe("dashboard API", () => {
         provider: "test-provider",
         model: "test-model",
         fallbackReason: null,
+        fallbackDetail: null,
+        window: {
+          requestedSince: null,
+          effectiveSince: "2026-02-09T09:00:00.000Z",
+          baselineCapturedAt: "2026-02-09T09:00:00.000Z",
+          currentCapturedAt: "2026-02-12T16:00:00.000Z",
+          coverageComplete: true,
+          strategy: "latest",
+        },
         toolsUsed: [],
         telemetry: {
           durationMs: 12,

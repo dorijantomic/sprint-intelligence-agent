@@ -3,6 +3,7 @@ import { ApiError } from "./connections";
 export type AgentProvider =
   | "deterministic"
   | "openai"
+  | "opencode-go"
   | "gemini"
   | "openai-compatible"
   | "custom";

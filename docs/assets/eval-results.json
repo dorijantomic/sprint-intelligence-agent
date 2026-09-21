@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "deterministic": {
+    "scenarios": 3,
+    "assertions": 39,
+    "passedAssertions": 39,
+    "factualCorrectness": 1,
+    "citationCoverage": 1,
+    "unsupportedClaimRate": 0,
+    "status": "passed"
+  },
+  "live": {
+    "provider": "opencode-go",
+    "model": "gpt-5.6-luna",
+    "scenarios": 3,
+    "passedScenarios": 3,
+    "modelCalls": 11,
+    "tokens": 17973,
+    "durationMs": 25182,
+    "estimatedCostUsd": 0.005498,
+    "groundedClaimRate": 1,
+    "expectedToolSelectionRate": 1,
+    "status": "passed"
+  }
+}

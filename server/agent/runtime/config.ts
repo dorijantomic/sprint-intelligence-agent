@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { OpenAICompatibleRuntime, OpenAIResponsesRuntime } from "./openai.js";
@@ -107,6 +108,28 @@ export async function resolveAgentRuntime(
     });
   }
 
+  if (provider === "opencode-go") {
+    if (!apiKey) throw new Error("AGENT_API_KEY is required for OpenCode Go");
+    const runtimeConfig = {
+      provider: "opencode-go",
+      apiKey,
+      model: model ?? "gpt-5.6-luna",
+      baseUrl: baseUrl ?? "https://opencode.ai/zen/go/v1",
+      defaultHeaders: {
+        "user-agent": "orbit-sprint-intelligence/0.1.0",
+        "x-opencode-session": randomUUID(),
+      },
+    };
+    if (/^(qwen3\.|minimax-)/.test(runtimeConfig.model)) {
+      throw new Error(
+        `${runtimeConfig.model} uses the Anthropic Messages protocol. Choose gpt-5.6-luna or a Go Chat Completions model in Orbit.`,
+      );
+    }
+    return runtimeConfig.model === "gpt-5.6-luna"
+      ? new OpenAIResponsesRuntime(runtimeConfig)
+      : new OpenAICompatibleRuntime(runtimeConfig);
+  }
+
   if (provider === "gemini") {
     if (!apiKey) throw new Error("AGENT_API_KEY is required for Gemini");
     return new OpenAICompatibleRuntime({
@@ -143,6 +166,6 @@ export async function resolveAgentRuntime(
   }
 
   throw new Error(
-    `Unsupported AGENT_PROVIDER "${provider}". Use openai, gemini, openai-compatible, custom, or deterministic.`,
+    `Unsupported AGENT_PROVIDER "${provider}". Use openai, opencode-go, gemini, openai-compatible, custom, or deterministic.`,
   );
 }

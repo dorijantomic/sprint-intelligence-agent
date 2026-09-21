@@ -1,4 +1,5 @@
 import type { EvidenceLink } from "../../src/domain/types.js";
+import type { ComparisonWindow } from "../../src/domain/types.js";
 
 export interface AgentClaim {
   text: string;
@@ -23,6 +24,8 @@ export interface AgentAnswer {
   provider: string | null;
   model: string | null;
   fallbackReason: "agent_not_configured" | "agent_error" | null;
+  fallbackDetail: string | null;
+  window: ComparisonWindow;
   toolsUsed: AgentToolTrace[];
   telemetry: {
     durationMs: number;

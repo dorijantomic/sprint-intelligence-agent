@@ -80,6 +80,21 @@ interface ConnectionConfigRow {
   updated_at: string;
 }
 
+interface AgentRunRow {
+  id: string;
+  snapshot_id: string | null;
+  question: string;
+  answer_json: string;
+  mode: "agent" | "deterministic";
+  model: string | null;
+  started_at: string;
+  completed_at: string;
+  duration_ms: number;
+  model_calls: number;
+  input_tokens: number;
+  output_tokens: number;
+}
+
 export interface StoredSnapshot {
   id: string;
   capturedAt: string;
@@ -96,6 +111,21 @@ export interface AgentRunInput {
   mode: "agent" | "deterministic";
   model: string | null;
   toolCalls: string[];
+  startedAt: string;
+  completedAt: string;
+  durationMs: number;
+  modelCalls: number;
+  inputTokens: number;
+  outputTokens: number;
+}
+
+export interface StoredAgentRun {
+  id: string;
+  snapshotId: string | null;
+  question: string;
+  answer: unknown;
+  mode: "agent" | "deterministic";
+  model: string | null;
   startedAt: string;
   completedAt: string;
   durationMs: number;
@@ -142,6 +172,15 @@ export interface StoredSyncRun extends SyncRunInput {
 export interface SnapshotCreationResult {
   snapshot: StoredSnapshot;
   created: boolean;
+}
+
+export interface StoredComparisonWindow {
+  baseline: StoredSnapshot;
+  current: StoredSnapshot;
+  requestedSince: string | null;
+  effectiveSince: string;
+  coverageComplete: boolean;
+  strategy: "latest" | "requested";
 }
 
 export interface StoredConnectionConfig<T = Record<string, unknown>> {
@@ -509,6 +548,34 @@ export class SprintLedger {
     return id;
   }
 
+  getRecentAgentRuns(limit = 10): StoredAgentRun[] {
+    const boundedLimit = Math.min(50, Math.max(1, Math.trunc(limit)));
+    const rows = this.database
+      .prepare(`
+        SELECT id, snapshot_id, question, answer_json, mode, model,
+               started_at, completed_at, duration_ms, model_calls,
+               input_tokens, output_tokens
+        FROM agent_runs
+        ORDER BY completed_at DESC
+        LIMIT ?
+      `)
+      .all(boundedLimit) as unknown as AgentRunRow[];
+    return rows.map((row) => ({
+      id: row.id,
+      snapshotId: row.snapshot_id,
+      question: row.question,
+      answer: JSON.parse(row.answer_json) as unknown,
+      mode: row.mode,
+      model: row.model,
+      startedAt: row.started_at,
+      completedAt: row.completed_at,
+      durationMs: row.duration_ms,
+      modelCalls: row.model_calls,
+      inputTokens: row.input_tokens,
+      outputTokens: row.output_tokens,
+    }));
+  }
+
   createSnapshot(
     connectionId: number,
     iterationExternalId: string,
@@ -578,7 +645,7 @@ export class SprintLedger {
         SELECT id
         FROM sprint_snapshots
         WHERE iteration_id = ?
-        ORDER BY captured_at DESC
+        ORDER BY julianday(captured_at) DESC
         LIMIT 1
       `)
       .get(iterationId) as unknown as { id: string } | undefined;
@@ -647,14 +714,73 @@ export class SprintLedger {
         WHERE iteration_id = (
           SELECT iteration_id
           FROM sprint_snapshots
-          ORDER BY captured_at DESC
+          ORDER BY julianday(captured_at) DESC
           LIMIT 1
         )
-        ORDER BY captured_at DESC
+        ORDER BY julianday(captured_at) DESC
         LIMIT ?
       `)
       .all(limit) as unknown as Array<{ id: string }>;
     return rows.map((row) => this.getSnapshot(row.id));
+  }
+
+  getComparisonWindow(since: string | null = null): StoredComparisonWindow {
+    const recent = this.getRecentSnapshots(2);
+    if (recent.length === 0) {
+      throw new Error("No sprint snapshots are available");
+    }
+    const current = recent[0];
+    if (!since) {
+      const baseline = recent[1] ?? current;
+      return {
+        baseline,
+        current,
+        requestedSince: null,
+        effectiveSince: baseline.capturedAt,
+        coverageComplete: true,
+        strategy: "latest",
+      };
+    }
+
+    const requestedTime = new Date(since).getTime();
+    if (!Number.isFinite(requestedTime)) {
+      throw new Error("since must be a valid ISO timestamp");
+    }
+    const baselineRow = this.database
+      .prepare(`
+        SELECT candidate.id, candidate.captured_at
+        FROM sprint_snapshots current
+        JOIN sprint_snapshots candidate
+          ON candidate.iteration_id = current.iteration_id
+        WHERE current.id = ?
+          AND julianday(candidate.captured_at) <= julianday(?)
+        ORDER BY julianday(candidate.captured_at) DESC
+        LIMIT 1
+      `)
+      .get(current.id, new Date(requestedTime).toISOString()) as unknown as
+        | { id: string; captured_at: string }
+        | undefined;
+    const earliestRow = this.database
+      .prepare(`
+        SELECT candidate.id, candidate.captured_at
+        FROM sprint_snapshots current
+        JOIN sprint_snapshots candidate
+          ON candidate.iteration_id = current.iteration_id
+        WHERE current.id = ?
+        ORDER BY julianday(candidate.captured_at) ASC
+        LIMIT 1
+      `)
+      .get(current.id) as unknown as { id: string; captured_at: string };
+    const selected = baselineRow ?? earliestRow;
+    const baseline = this.getSnapshot(selected.id);
+    return {
+      baseline,
+      current,
+      requestedSince: new Date(requestedTime).toISOString(),
+      effectiveSince: new Date(requestedTime).toISOString(),
+      coverageComplete: Boolean(baselineRow),
+      strategy: "requested",
+    };
   }
 
   getEventsBetweenSnapshots(
@@ -672,11 +798,45 @@ export class SprintLedger {
         JOIN work_items w ON w.iteration_id = current.iteration_id
         JOIN activity_events e ON e.work_item_id = w.id
         WHERE baseline.id = ?
-          AND e.occurred_at > baseline.captured_at
-          AND e.occurred_at <= current.captured_at
-        ORDER BY e.occurred_at DESC, e.id DESC
+          AND julianday(e.occurred_at) > julianday(baseline.captured_at)
+          AND julianday(e.occurred_at) <= julianday(current.captured_at)
+        ORDER BY julianday(e.occurred_at) DESC, e.id DESC
       `)
       .all(currentSnapshotId, baselineSnapshotId) as unknown as ActivityEventRow[];
+
+    return rows.map((row) => ({
+      id: row.external_id,
+      itemId: row.item_key,
+      itemTitle: row.item_title,
+      kind: row.kind,
+      occurredAt: row.occurred_at,
+      actor: row.actor,
+      url: row.url,
+      payload: JSON.parse(row.payload_json) as Record<string, unknown>,
+    }));
+  }
+
+  getEventsSince(
+    currentSnapshotId: string,
+    since: string,
+  ): StoredActivityEvent[] {
+    const sinceTime = new Date(since).getTime();
+    if (!Number.isFinite(sinceTime)) {
+      throw new Error("since must be a valid ISO timestamp");
+    }
+    const rows = this.database
+      .prepare(`
+        SELECT e.external_id, w.item_key, w.title AS item_title, e.kind,
+               e.occurred_at, e.actor, e.url, e.payload_json
+        FROM sprint_snapshots current
+        JOIN work_items w ON w.iteration_id = current.iteration_id
+        JOIN activity_events e ON e.work_item_id = w.id
+        WHERE current.id = ?
+          AND julianday(e.occurred_at) > julianday(?)
+          AND julianday(e.occurred_at) <= julianday(current.captured_at)
+        ORDER BY julianday(e.occurred_at) DESC, e.id DESC
+      `)
+      .all(currentSnapshotId, new Date(sinceTime).toISOString()) as unknown as ActivityEventRow[];
 
     return rows.map((row) => ({
       id: row.external_id,

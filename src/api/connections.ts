@@ -24,7 +24,15 @@ export interface GitHubConnectionConfig {
   iterationTitle: string;
 }
 
-export interface Connection {
+export interface JiraConnectionConfig {
+  baseUrl: string;
+  email: string;
+  sprintId: number;
+  sprintName: string;
+  storyPointField: string | null;
+}
+
+export interface GitHubConnection {
   id: number;
   provider: "github";
   externalId: string;
@@ -32,6 +40,17 @@ export interface Connection {
   config: GitHubConnectionConfig;
   updatedAt: string;
 }
+
+export interface JiraConnection {
+  id: number;
+  provider: "jira";
+  externalId: string;
+  displayName: string;
+  config: JiraConnectionConfig;
+  updatedAt: string;
+}
+
+export type Connection = GitHubConnection | JiraConnection;
 
 export interface SyncResult {
   status: "updated" | "unchanged";
@@ -91,6 +110,18 @@ export async function saveGitHubConnection(
     body: JSON.stringify(config),
   });
   const body = await readResponse<{ connection: Connection }>(response);
+  return body.connection;
+}
+
+export async function saveJiraConnection(
+  config: JiraConnectionConfig & { apiToken?: string },
+): Promise<JiraConnection> {
+  const response = await fetch("/api/connections/jira", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(config),
+  });
+  const body = await readResponse<{ connection: JiraConnection }>(response);
   return body.connection;
 }
 

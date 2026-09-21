@@ -142,4 +142,33 @@ describe("runSprintAgent", () => {
       true,
     );
   });
+
+  it("forces submission after four read calls", async () => {
+    ledger = new SprintLedger();
+    seedDemoLedger(ledger);
+    const nextTurn = vi
+      .fn()
+      .mockResolvedValueOnce(modelTurn("get_sprint_overview", {}))
+      .mockResolvedValueOnce(modelTurn("list_sprint_changes", { kind: "all", limit: 20 }))
+      .mockResolvedValueOnce(modelTurn("list_sprint_activity", { kind: "all", item_id: null, limit: 20 }))
+      .mockResolvedValueOnce(modelTurn("list_sprint_risks", { kind: "all", severity: "all", limit: 20 }))
+      .mockResolvedValueOnce(modelTurn("submit_answer", {
+        claims: [{
+          text: "#142 is blocked by #139.",
+          kind: "fact",
+          confidence: "high",
+          factIds: ["risk:#142-blocked"],
+        }],
+      }));
+
+    const answer = await runSprintAgent(ledger, "Give me a complete brief", {
+      runtime: fakeRuntime(nextTurn),
+    });
+
+    expect(answer.mode).toBe("agent");
+    expect(answer.telemetry.modelCalls).toBe(5);
+    expect(nextTurn.mock.calls[4]?.[0].tools.map(
+      (tool: AgentFunctionTool) => tool.name,
+    )).toEqual(["submit_answer"]);
+  });
 });

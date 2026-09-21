@@ -7,11 +7,13 @@
     "node": ">=24"
   },
   "scripts": {
+    "start:local": "bash scripts/start-local.sh",
     "dev": "concurrently --kill-others --names api,web \"npm:dev:api\" \"npm:dev:web\"",
     "dev:api": "tsx watch server/api/index.ts",
     "dev:web": "vite",
     "sync:github": "tsx server/cli/sync-github.ts",
     "eval": "tsx server/evals/run.ts",
+    "eval:live": "tsx server/evals/run-live.ts",
     "build": "tsc -b && vite build",
     "test": "vitest run",
     "typecheck": "tsc -b --pretty false"

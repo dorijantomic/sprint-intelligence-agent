@@ -4,6 +4,7 @@ import {
 } from "../../src/domain/analyzeSprint.js";
 import type {
   ActivityEvent,
+  ComparisonWindow,
   EvidenceLink,
   SprintAnalysis,
   SprintSnapshot,
@@ -111,6 +112,7 @@ interface ToolContext {
   current: SprintSnapshot;
   events: ActivityEvent[];
   analysis: SprintAnalysis;
+  window: ComparisonWindow;
 }
 
 export interface LedgerFact {
@@ -131,23 +133,32 @@ export class SprintLedgerTools {
   readonly trace: AgentToolTrace[] = [];
   private readonly context: ToolContext;
 
-  constructor(private readonly ledger: SprintLedger) {
-    const snapshots = ledger.getRecentSnapshots(2);
-    if (snapshots.length === 0) {
-      throw new Error("No sprint snapshots are available for the agent");
-    }
-    const currentStored = snapshots[0];
-    const baselineStored = snapshots[1] ?? currentStored;
+  constructor(
+    private readonly ledger: SprintLedger,
+    options: { since?: string | null } = {},
+  ) {
+    const storedWindow = ledger.getComparisonWindow(options.since ?? null);
+    const currentStored = storedWindow.current;
+    const baselineStored = storedWindow.baseline;
     const current = serializeSnapshot(currentStored);
     const baseline = serializeSnapshot(baselineStored);
-    const events = baseline.id === current.id
-      ? []
-      : ledger.getEventsBetweenSnapshots(baseline.id, current.id);
+    const events = ledger.getEventsSince(
+      current.id,
+      storedWindow.effectiveSince,
+    );
     this.context = {
       baseline,
       current,
       events,
       analysis: analyzeSprint(baseline, current),
+      window: {
+        requestedSince: storedWindow.requestedSince,
+        effectiveSince: storedWindow.effectiveSince,
+        baselineCapturedAt: baseline.capturedAt,
+        currentCapturedAt: current.capturedAt,
+        coverageComplete: storedWindow.coverageComplete,
+        strategy: storedWindow.strategy,
+      },
     };
     this.registerSnapshot(
       current.id,
@@ -158,6 +169,10 @@ export class SprintLedgerTools {
 
   get snapshotId(): string {
     return this.context.current.id;
+  }
+
+  get analysisContext(): Readonly<ToolContext> {
+    return this.context;
   }
 
   execute(name: string, rawArguments: string): unknown {
@@ -196,7 +211,7 @@ export class SprintLedgerTools {
   }
 
   private overview(): unknown {
-    const { baseline, current, analysis } = this.context;
+    const { baseline, current, analysis, window } = this.context;
     const evidenceIds = current.items.map((item) => this.registerItem(item));
     const factId = this.registerFact(
       `overview:${current.id}`,
@@ -209,6 +224,9 @@ export class SprintLedgerTools {
         source: current.sourceName,
         baselineCapturedAt: baseline.capturedAt,
         currentCapturedAt: current.capturedAt,
+        requestedSince: window.requestedSince,
+        effectiveSince: window.effectiveSince,
+        coverageComplete: window.coverageComplete,
       },
       progress: {
         itemCount: current.items.length,
