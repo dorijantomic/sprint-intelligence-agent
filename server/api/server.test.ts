@@ -203,6 +203,7 @@ describe("dashboard API", () => {
     ledgers.push(ledger);
     const atlassianOAuth = {
       status: vi.fn(async () => ({ configured: true, connected: true, missing: [] })),
+      configure: vi.fn(async () => ({ configured: true, connected: false, missing: [] })),
       authorizationUrl: vi.fn(async () => "https://auth.atlassian.com/authorize"),
       complete: vi.fn(async () => undefined),
       getAccessToken: vi.fn(async () => "oauth-access-token"),
@@ -228,6 +229,12 @@ describe("dashboard API", () => {
     const address = server.address() as AddressInfo;
     const baseUrl = `http://127.0.0.1:${address.port}`;
 
+    const configResponse = await fetch(`${baseUrl}/api/auth/atlassian/config`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ clientId: "ui-client", clientSecret: "ui-secret" }),
+    });
+    const configured = await configResponse.json();
     const sites = await (await fetch(`${baseUrl}/api/atlassian/sites`)).json();
     const boards = await (await fetch(`${baseUrl}/api/atlassian/boards?cloudId=cloud-1`)).json();
     const discovery = await (await fetch(`${baseUrl}/api/atlassian/boards/34/sprints?cloudId=cloud-1`)).json();
@@ -246,6 +253,9 @@ describe("dashboard API", () => {
     const saved = await saveResponse.json();
     const syncResponse = await fetch(`${baseUrl}/api/connections/${saved.connection.id}/sync`, { method: "POST" });
 
+    expect(configResponse.status).toBe(200);
+    expect(atlassianOAuth.configure).toHaveBeenCalledWith("ui-client", "ui-secret");
+    expect(JSON.stringify(configured)).not.toContain("ui-secret");
     expect(sites.sites[0].id).toBe("cloud-1");
     expect(boards.boards[0].id).toBe(34);
     expect(saveResponse.status).toBe(201);

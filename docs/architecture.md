@@ -26,7 +26,7 @@ The application—not the supplied runtime—executes tools and keeps fact and e
 
 Presents the sprint overview, snapshot diff, dependency graph, evidence drawer, risk list, and conversational queries.
 
-During local development, the API reads immutable snapshots from SQLite and Vite proxies `/api` requests to it. The setup API uses the active `gh` login to discover GitHub projects and iterations or accepts a Jira Cloud sprint; it persists only non-secret connection metadata and exposes a direct synchronization action. Jira and agent credentials use separate ignored, owner-readable files, are redacted from every response, and never enter SQLite. Agent settings apply without restart and verify typed tool calling before the runtime answers sprint questions. Environment configuration overrides the local agent file and is read-only in the UI. The dashboard retains a bundled fixture only as an explicit fallback when the API is unavailable.
+During local development, the API reads immutable snapshots from SQLite and Vite proxies `/api` requests to it. The setup API uses the active `gh` login to discover GitHub projects and iterations or accepts a Jira Cloud sprint; it persists only non-secret connection metadata and exposes a direct synchronization action. Jira, Atlassian OAuth app, and agent credentials use ignored, owner-readable local files, are redacted from every response, and never enter SQLite or browser storage. Atlassian app credentials and agent settings apply without restart. Agent setup verifies typed tool calling before the runtime answers sprint questions. Environment configuration remains an optional deployment override. The dashboard retains a bundled fixture only as an explicit fallback when the API is unavailable.
 
 ### Evaluation harness
 

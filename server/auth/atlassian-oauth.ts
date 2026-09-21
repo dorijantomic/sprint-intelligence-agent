@@ -3,6 +3,7 @@ import { SourceSecretStore } from "../config/source-secrets.js";
 
 const GRANT_KEY = "atlassian:oauth:grant";
 const STATE_KEY = "atlassian:oauth:state";
+const APP_CREDENTIALS_KEY = "atlassian:oauth:app-credentials";
 const DEFAULT_SCOPES = [
   "offline_access",
   "read:jira-work",
@@ -51,6 +52,7 @@ export interface AtlassianOAuthStatus {
 export interface AtlassianOAuthProvider {
   readonly appUrl?: string;
   status(): Promise<AtlassianOAuthStatus>;
+  configure(clientId: string, clientSecret: string): Promise<AtlassianOAuthStatus>;
   authorizationUrl(): Promise<string>;
   complete(code: string, state: string): Promise<void>;
   getAccessToken(): Promise<string>;
@@ -69,6 +71,11 @@ interface OAuthGrant {
 interface OAuthState {
   value: string;
   expiresAt: number;
+}
+
+interface OAuthAppCredentials {
+  clientId: string;
+  clientSecret: string;
 }
 
 interface OAuthTokenResponse {
@@ -106,8 +113,8 @@ function requiredPositiveInteger(value: unknown, field: string): number {
 
 export class AtlassianOAuth implements AtlassianOAuthProvider {
   readonly appUrl: string;
-  private readonly clientId: string;
-  private readonly clientSecret: string;
+  private readonly clientIdOverride: string;
+  private readonly clientSecretOverride: string;
   private readonly redirectUri: string;
   private readonly scopes: string;
   private readonly secrets: SourceSecretStore;
@@ -116,8 +123,8 @@ export class AtlassianOAuth implements AtlassianOAuthProvider {
   private refreshPromise: Promise<string> | null = null;
 
   constructor(options: AtlassianOAuthOptions = {}) {
-    this.clientId = options.clientId ?? process.env.ATLASSIAN_CLIENT_ID ?? "";
-    this.clientSecret = options.clientSecret ?? process.env.ATLASSIAN_CLIENT_SECRET ?? "";
+    this.clientIdOverride = options.clientId ?? process.env.ATLASSIAN_CLIENT_ID ?? "";
+    this.clientSecretOverride = options.clientSecret ?? process.env.ATLASSIAN_CLIENT_SECRET ?? "";
     this.redirectUri = options.redirectUri ?? process.env.ATLASSIAN_REDIRECT_URI ??
       "http://localhost:8787/api/auth/atlassian/callback";
     this.appUrl = (options.appUrl ?? process.env.ATLASSIAN_APP_URL ?? process.env.APP_URL ??
@@ -129,9 +136,10 @@ export class AtlassianOAuth implements AtlassianOAuthProvider {
   }
 
   async status(): Promise<AtlassianOAuthStatus> {
+    const credentials = await this.readCredentials();
     const missing = [
-      !this.clientId ? "ATLASSIAN_CLIENT_ID" : null,
-      !this.clientSecret ? "ATLASSIAN_CLIENT_SECRET" : null,
+      !credentials.clientId ? "client ID" : null,
+      !credentials.clientSecret ? "client secret" : null,
     ].filter((value): value is string => value !== null);
     return {
       configured: missing.length === 0,
@@ -140,8 +148,21 @@ export class AtlassianOAuth implements AtlassianOAuthProvider {
     };
   }
 
+  async configure(clientId: string, clientSecret: string): Promise<AtlassianOAuthStatus> {
+    const credentials = {
+      clientId: clientId.trim(),
+      clientSecret: clientSecret.trim(),
+    };
+    if (!credentials.clientId) throw new AtlassianOAuthError("Atlassian client ID is required", 400);
+    if (!credentials.clientSecret) throw new AtlassianOAuthError("Atlassian client secret is required", 400);
+    await this.secrets.set(APP_CREDENTIALS_KEY, JSON.stringify(credentials));
+    await this.secrets.delete(GRANT_KEY);
+    await this.secrets.delete(STATE_KEY);
+    return this.status();
+  }
+
   async authorizationUrl(): Promise<string> {
-    this.assertConfigured();
+    const credentials = await this.requireCredentials();
     const state = randomBytes(32).toString("base64url");
     await this.secrets.set(STATE_KEY, JSON.stringify({
       value: state,
@@ -150,7 +171,7 @@ export class AtlassianOAuth implements AtlassianOAuthProvider {
     const url = new URL("https://auth.atlassian.com/authorize");
     url.search = new URLSearchParams({
       audience: "api.atlassian.com",
-      client_id: this.clientId,
+      client_id: credentials.clientId,
       scope: this.scopes,
       redirect_uri: this.redirectUri,
       state,
@@ -161,7 +182,7 @@ export class AtlassianOAuth implements AtlassianOAuthProvider {
   }
 
   async complete(code: string, state: string): Promise<void> {
-    this.assertConfigured();
+    const credentials = await this.requireCredentials();
     const stored = await this.readJson<OAuthState>(STATE_KEY);
     if (!stored || stored.expiresAt < this.now()) {
       await this.secrets.delete(STATE_KEY);
@@ -173,8 +194,8 @@ export class AtlassianOAuth implements AtlassianOAuthProvider {
     await this.secrets.delete(STATE_KEY);
     const token = await this.tokenRequest({
       grant_type: "authorization_code",
-      client_id: this.clientId,
-      client_secret: this.clientSecret,
+      client_id: credentials.clientId,
+      client_secret: credentials.clientSecret,
       code,
       redirect_uri: this.redirectUri,
     });
@@ -274,13 +295,23 @@ export class AtlassianOAuth implements AtlassianOAuthProvider {
     };
   }
 
-  private assertConfigured(): void {
-    if (!this.clientId || !this.clientSecret) {
+  private async readCredentials(): Promise<OAuthAppCredentials> {
+    const stored = await this.readJson<OAuthAppCredentials>(APP_CREDENTIALS_KEY);
+    return {
+      clientId: this.clientIdOverride || stored?.clientId || "",
+      clientSecret: this.clientSecretOverride || stored?.clientSecret || "",
+    };
+  }
+
+  private async requireCredentials(): Promise<OAuthAppCredentials> {
+    const credentials = await this.readCredentials();
+    if (!credentials.clientId || !credentials.clientSecret) {
       throw new AtlassianOAuthError(
-        "Atlassian OAuth is not configured. Set ATLASSIAN_CLIENT_ID and ATLASSIAN_CLIENT_SECRET.",
+        "Enter the Atlassian client ID and client secret in Jira setup first.",
         503,
       );
     }
+    return credentials;
   }
 
   private jiraUrl(cloudId: string, path: string): URL {
@@ -305,13 +336,13 @@ export class AtlassianOAuth implements AtlassianOAuthProvider {
   }
 
   private async refresh(grant: OAuthGrant): Promise<string> {
-    this.assertConfigured();
+    const credentials = await this.requireCredentials();
     let token: OAuthTokenResponse;
     try {
       token = await this.tokenRequest({
         grant_type: "refresh_token",
-        client_id: this.clientId,
-        client_secret: this.clientSecret,
+        client_id: credentials.clientId,
+        client_secret: credentials.clientSecret,
         refresh_token: grant.refreshToken,
       });
     } catch (error) {

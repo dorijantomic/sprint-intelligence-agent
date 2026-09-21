@@ -22,6 +22,7 @@ import {
   loadAtlassianSprints,
   loadConnections,
   saveGitHubConnection,
+  saveAtlassianOAuthCredentials,
   saveJiraConnection,
   saveJiraOAuthConnection,
   syncConnection,
@@ -160,6 +161,27 @@ function JiraSetup({ saving, onSaveToken, onSaveOAuth }: JiraSetupProps) {
   const [jiraSprintId, setJiraSprintId] = useState("");
   const [jiraSprintName, setJiraSprintName] = useState("");
   const [jiraStoryPoints, setJiraStoryPoints] = useState("customfield_10016");
+  const [atlassianClientId, setAtlassianClientId] = useState("");
+  const [atlassianClientSecret, setAtlassianClientSecret] = useState("");
+  const [savingCredentials, setSavingCredentials] = useState(false);
+  const [showCredentialForm, setShowCredentialForm] = useState(false);
+
+  async function saveCredentialsAndConnect() {
+    setSavingCredentials(true);
+    setDiscoveryError(null);
+    try {
+      const nextStatus = await saveAtlassianOAuthCredentials(
+        atlassianClientId,
+        atlassianClientSecret,
+      );
+      setStatus(nextStatus);
+      setAtlassianClientSecret("");
+      window.location.assign("/api/auth/atlassian/start");
+    } catch (error) {
+      setDiscoveryError(error instanceof Error ? error.message : "Could not save Atlassian credentials.");
+      setSavingCredentials(false);
+    }
+  }
 
   useEffect(() => {
     let active = true;
@@ -247,13 +269,33 @@ function JiraSetup({ saving, onSaveToken, onSaveOAuth }: JiraSetupProps) {
   }
 
   if (loading && !status) return <div className="discover-state"><strong>Checking Atlassian connection…</strong></div>;
-  if (!status?.configured) {
+  if (!status?.configured || showCredentialForm) {
     return (
-      <div className="discover-state">
-        <strong>Atlassian OAuth needs app credentials</strong>
-        <small>Set {status?.missing.join(" and ") || "the Atlassian client variables"} in .env, then restart Orbit.</small>
-        <button className="secondary-action" onClick={() => setMode("token")} type="button">Use API token instead</button>
-      </div>
+      <form className="setup-form" onSubmit={(event) => {
+        event.preventDefault();
+        void saveCredentialsAndConnect();
+      }}>
+        <div className="setup-note">
+          <span>One-time setup</span>
+          Create a free OAuth 2.0 integration in the Atlassian developer console and give it this callback URL: <code>http://localhost:8787/api/auth/atlassian/callback</code>
+        </div>
+        <a className="secondary-action centered-action" href="https://developer.atlassian.com/console/myapps/" rel="noreferrer" target="_blank">Open Atlassian developer console ↗</a>
+        <label>
+          Atlassian Client ID
+          <input autoComplete="off" onChange={(event) => setAtlassianClientId(event.target.value)} placeholder="Paste the OAuth app client ID" required value={atlassianClientId} />
+        </label>
+        <label>
+          Atlassian Client Secret
+          <input autoComplete="new-password" onChange={(event) => setAtlassianClientSecret(event.target.value)} placeholder="Stored only on this machine" required type="password" value={atlassianClientSecret} />
+        </label>
+        <div className="setup-note"><span>Private</span>These values are saved in Orbit's ignored, owner-readable local secret file. They are never returned to the browser or committed to Git.</div>
+        {discoveryError && <div className="setup-error" role="alert">{discoveryError}</div>}
+        <div className="dialog-actions">
+          {status?.configured && <button className="text-button" onClick={() => setShowCredentialForm(false)} type="button">Cancel</button>}
+          <button className="text-button" onClick={() => setMode("token")} type="button">Use API token instead</button>
+          <button className="primary-action" disabled={savingCredentials} type="submit">{savingCredentials ? "Saving…" : "Save and connect"}</button>
+        </div>
+      </form>
     );
   }
   if (!status.connected) {
@@ -263,6 +305,7 @@ function JiraSetup({ saving, onSaveToken, onSaveOAuth }: JiraSetupProps) {
         <strong>Connect your Atlassian account</strong>
         <small>Orbit requests read-only Jira access and refresh access so future syncs keep working.</small>
         <a className="primary-action" href="/api/auth/atlassian/start">Connect with Atlassian</a>
+        <button className="text-button" onClick={() => setShowCredentialForm(true)} type="button">Change app credentials</button>
         <button className="text-button" onClick={() => setMode("token")} type="button">Use API token instead</button>
       </div>
     );

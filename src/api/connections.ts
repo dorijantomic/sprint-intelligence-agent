@@ -164,6 +164,18 @@ export async function loadAtlassianOAuthStatus(): Promise<AtlassianOAuthStatus> 
   return readResponse<AtlassianOAuthStatus>(response);
 }
 
+export async function saveAtlassianOAuthCredentials(
+  clientId: string,
+  clientSecret: string,
+): Promise<AtlassianOAuthStatus> {
+  const response = await fetch("/api/auth/atlassian/config", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ clientId, clientSecret }),
+  });
+  return (await readResponse<{ status: AtlassianOAuthStatus }>(response)).status;
+}
+
 export async function loadAtlassianSites(): Promise<AtlassianSite[]> {
   const response = await fetch("/api/atlassian/sites");
   return (await readResponse<{ sites: AtlassianSite[] }>(response)).sites;

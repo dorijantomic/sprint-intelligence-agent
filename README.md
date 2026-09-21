@@ -55,7 +55,9 @@ http://localhost:8787/api/auth/atlassian/callback
 cp .env.example .env
 ```
 
-Add the Jira platform and Jira Software API permissions shown in `server/auth/atlassian-oauth.ts`, set `ATLASSIAN_CLIENT_ID` and `ATLASSIAN_CLIENT_SECRET` in `.env`, restart Orbit, then choose **Connect source → Jira Cloud → Connect with Atlassian**. The UI discovers accessible sites, Scrum boards, active/future sprints, and—when the signed-in user can view board configuration—the board's estimation field. All requested Jira scopes are read-only; `offline_access` allows refresh-token rotation so later syncs do not require another sign-in.
+Add the Jira platform and Jira Software API permissions shown in `server/auth/atlassian-oauth.ts`, then choose **Connect source → Jira Cloud**. Paste the app's Client ID and Client Secret into the setup screen and select **Save and connect**. Orbit stores them in its ignored, owner-readable local secret file; they never enter Git, SQLite, or browser storage. The UI then discovers accessible sites, Scrum boards, active/future sprints, and—when the signed-in user can view board configuration—the board's estimation field. All requested Jira scopes are read-only; `offline_access` allows refresh-token rotation so later syncs do not require another sign-in.
+
+`ATLASSIAN_CLIENT_ID` and `ATLASSIAN_CLIENT_SECRET` remain available as optional environment overrides for hosted deployments.
 
 If you cannot register an OAuth integration, choose **Use API token instead** and enter the site URL, account email, token, and sprint ID manually. Both authentication modes only perform Jira GET requests and import sprint metadata, work items, comments, status, ownership, priorities, estimates, and blocker links.
 

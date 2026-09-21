@@ -239,6 +239,24 @@ export function createApiServer(
         return;
       }
 
+      if (request.method === "POST" && url.pathname === "/api/auth/atlassian/config") {
+        try {
+          const body = await readJson(request) as Record<string, unknown>;
+          const status = await atlassianOAuth.configure(
+            requiredString(body.clientId, "clientId"),
+            requiredString(body.clientSecret, "clientSecret"),
+          );
+          sendJson(response, 200, { status });
+        } catch (error) {
+          const status = error instanceof AtlassianOAuthError ? error.status : 400;
+          sendJson(response, status, {
+            error: safeErrorMessage(error),
+            kind: "atlassian_oauth",
+          });
+        }
+        return;
+      }
+
       if (request.method === "GET" && url.pathname === "/api/auth/atlassian/start") {
         try {
           sendRedirect(response, await atlassianOAuth.authorizationUrl());

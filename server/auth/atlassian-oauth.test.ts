@@ -93,4 +93,26 @@ describe("AtlassianOAuth", () => {
     await expect(oauth.complete("code", "wrong-state")).rejects.toThrow("invalid or expired");
     expect(request).not.toHaveBeenCalled();
   });
+
+  it("accepts app credentials from the UI without returning the secret", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "orbit-atlassian-config-"));
+    directories.push(directory);
+    const oauth = new AtlassianOAuth({
+      clientId: "",
+      clientSecret: "",
+      secrets: new SourceSecretStore(join(directory, "secrets.json")),
+    });
+
+    expect(await oauth.status()).toEqual({
+      configured: false,
+      connected: false,
+      missing: ["client ID", "client secret"],
+    });
+    const status = await oauth.configure("ui-client-id", "ui-client-secret");
+    const authorizationUrl = new URL(await oauth.authorizationUrl());
+
+    expect(status).toEqual({ configured: true, connected: false, missing: [] });
+    expect(JSON.stringify(status)).not.toContain("ui-client-secret");
+    expect(authorizationUrl.searchParams.get("client_id")).toBe("ui-client-id");
+  });
 });
