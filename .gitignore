@@ -21,6 +21,7 @@ coverage/
 *.sqlite-wal
 
 # Test artifacts
+.artifacts/
 .playwright/
 playwright-report/
 test-results/

@@ -81,7 +81,10 @@ Quality checks:
 ```bash
 npm test
 npm run build
+npm run eval
 ```
+
+The evaluation gate replays versioned sprint histories and measures factual correctness, citation coverage, unsupported-claim rate, runtime, model calls, and estimated cost. It writes a machine-readable report to the ignored `.artifacts/eval-report.json` path and exits nonzero if a threshold regresses. GitHub Actions runs the same tests, build, and eval gate for pushes and pull requests, then uploads the report as a workflow artifact.
 
 ## Intended stack
 
