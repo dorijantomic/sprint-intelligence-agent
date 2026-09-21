@@ -8,5 +8,6 @@ coverage/
 .playwright/
 playwright-report/
 test-results/
+*.tsbuildinfo
 *.log
 .DS_Store

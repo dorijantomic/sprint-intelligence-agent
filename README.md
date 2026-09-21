@@ -51,7 +51,23 @@ See [docs/architecture.md](docs/architecture.md) for the initial system boundari
 
 ## Repository status
 
-This repository currently contains the product brief and architecture baseline. Application scaffolding is the next milestone.
+Milestone 1 is in progress. The repository includes an interactive React dashboard, deterministic before/after sprint analysis, evidence-linked risk signals, and unit tests over a representative fixture sprint.
+
+Run it locally:
+
+```bash
+npm install
+npm run dev
+```
+
+Quality checks:
+
+```bash
+npm test
+npm run build
+```
+
+See [the product research](docs/research/product-research-2026-09-21.md) for the competitive and API findings, and [the implementation plan](docs/implementation-plan.md) for the sequenced roadmap.
 
 ## Intended stack
 
