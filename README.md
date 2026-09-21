@@ -62,13 +62,17 @@ npm run dev
 
 This starts the ledger-backed API on port `8787` and the Vite dashboard on port `5173`. On first run, the API creates an ignored local SQLite database and seeds two demo snapshots so the complete persistence-to-dashboard path is immediately usable.
 
-To ingest a real GitHub Project iteration, copy `.env.example` to `.env`, provide a read-only token and the Project/iteration identifiers, then run:
+To ingest a real GitHub Project iteration, authenticate GitHub CLI with read-only Projects access, copy `.env.example` to `.env`, provide the Project/iteration identifiers, then run:
+
+```bash
+gh auth refresh -s read:project
+```
 
 ```bash
 npm run sync:github
 ```
 
-The command normalizes the current iteration state, appends idempotent observation events, and creates an immutable snapshot. Tokens remain in the ignored environment file and are never written to the ledger or command output.
+The command reuses the active GitHub CLI login, normalizes the current iteration state, appends idempotent observation events, and creates an immutable snapshot. `GITHUB_TOKEN` remains available as an optional CI override; credentials are never written to the ledger or command output.
 
 Quality checks:
 

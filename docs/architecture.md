@@ -48,6 +48,8 @@ Replays fixed sprint histories and scores factual correctness, citation validity
 
 Provider content is untrusted input. Connectors validate payloads, agent tools expose typed queries instead of arbitrary database access, secrets stay server-side, and all future write operations require an explicit approval record.
 
+Local GitHub ingestion reuses the authenticated `gh` CLI credential. CI may inject a token through the environment, while a deployed multi-user version will use GitHub App installations rather than user CLI credentials.
+
 ## Implementation sequence
 
 1. Prove the diff and risk engine with deterministic snapshots.
